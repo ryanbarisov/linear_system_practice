@@ -1,0 +1,6 @@
+*.mtx
+*.gch
+*~
+a.out
+*.dat
+*.txt
