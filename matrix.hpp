@@ -9,6 +9,7 @@
 #include <string>
 #include <sstream>
 #include <iomanip>
+#include <list>
 
 
 double DotProduct(const std::vector<double>& a, const std::vector<double>& b)
@@ -73,9 +74,9 @@ public:
 };
 
 
-class MTX_matrix : public Matrix
+struct MTX_matrix : public Matrix
 {
-private:
+
 	int M;	// rows
 	int N;	// columns
 	int L;	// nonzeros
@@ -419,6 +420,242 @@ public:
 		}
 	}
 };
+
+
+typedef std::pair<int,double> entry;
+typedef std::vector<entry> sparse_type;
+
+struct sparse_row
+{
+	sparse_type row;
+
+	sparse_row() {}
+
+	// assign part of row in interval [begin, end)
+	sparse_row& assign(const sparse_row& other, int begin, int end)
+	{
+		row.clear();
+		if(begin < end)
+		{
+			for(sparse_type::const_iterator it = other.row.begin(); it != other.row.end(); ++it)
+				if(it->first >= begin && it->first < end)
+					row.push_back(*it);
+		}
+		return *this;
+	}
+
+	void add_element(const entry& e, bool add = false)
+	{
+		if(row.empty())	
+		{
+			row.push_back(e);
+			return;
+		}
+		sparse_type::iterator pos = row.end();
+		bool equal = false;
+		int r = e.first;
+		for(sparse_type::iterator it = row.begin(); it != row.end(); ++it)
+		{
+			if(r <= it->first)
+			{
+				pos = it;
+				if(r == it->first)	equal = true;
+				break;
+			}
+		}
+		if(equal)
+		{
+			if(add)	pos->second += e.second;
+			else pos->second = e.second;
+		}
+		else if(pos == row.end())
+			row.push_back(e);
+		else 
+			row.insert(pos, e);
+	}
+
+	sparse_row& operator+=(const sparse_row& other)
+	{
+		for(sparse_type::const_iterator it = other.row.begin(); it != other.row.end(); ++it)
+			add_element(*it);
+		return *this;
+	}
+
+	sparse_row operator+(const sparse_row& other)
+	{
+		sparse_row r = *this;
+		r += other;
+		return r;
+	}
+
+	// update row as row + a * other.row in interval [begin,end)
+	sparse_row& plus(double a, const sparse_row& other, int begin, int end)
+	{
+		if(begin < end)
+		{
+			entry e;
+			for(sparse_type::const_iterator it = other.row.begin(); it != other.row.end(); ++it)
+			{
+				if(it->first >= begin && it->first < end)
+				{
+					e.first = it->first;
+					e.second = it->second * a;
+					add_element(e, true);
+				}
+			}
+		}
+		return *this;
+	}
+
+	sparse_row& operator*=(double alpha)
+	{
+		for(sparse_type::iterator it = row.begin(); it != row.end(); ++it)
+			it->second *= alpha;
+		return *this;
+	}
+
+	sparse_row operator*(double alpha) const
+	{
+		sparse_row r = *this;
+		r *= alpha;
+		return r;
+	}
+
+	double get_element(int index) const
+	{
+		for(sparse_type::const_iterator it = row.begin(); it != row.end(); ++it)
+			if(it->first == index)	return it->second;
+		return 0.0;
+	}
+
+	void print() const
+	{
+		for(sparse_type::const_iterator it = row.begin(); it != row.end(); ++it)
+			std::cout << it->first << ": " << it->second << std::endl;
+	}
+};
+
+
+#define STORED_BY_ROWS true
+#define STORED_BY_COLS false
+
+
+struct S_matrix
+{
+// private:
+	sparse_row * v;
+	int N;
+	bool stored_by_rows;
+public:
+	S_matrix(int _N, bool _stored_by_rows) : N(_N), stored_by_rows(_stored_by_rows)
+	{
+		v = new sparse_row[N];
+	}
+	S_matrix(const S_matrix& other) : N(other.N), stored_by_rows(other.stored_by_rows)
+	{
+		assert(N > 0);
+		v = new sparse_row[N];
+		for(int i = 0; i < N; i++)	v[i] = other.v[i];
+	}
+	~S_matrix() 
+	{
+		delete[] v;
+	}
+
+	void print() const
+	{
+		for(int i = 0; i < N; i++)
+		{
+			std::cout << (stored_by_rows ? "row " : "col" ) << i << std::endl;
+			v[i].print();
+		}
+	}
+
+	void add_element(int row, int col, double val)
+	{
+		assert( ( stored_by_rows && row >= 0 && row < N) || 
+				(!stored_by_rows && col >= 0 && col < N) );
+		entry e;
+		if(stored_by_rows)
+		{
+			e = std::make_pair(col, val);
+			v[row].add_element(e);
+		}
+		else
+		{
+			e = std::make_pair(row, val);
+			v[col].add_element(e);
+		}
+	}
+
+	void set_vector(int pos, const sparse_row& vec, int begin, int end)
+	{
+		assert(pos >= 0 && pos < N);
+		v[pos].assign(vec,begin,end);
+	}
+
+	const sparse_row& get_vector(int pos) const 
+	{
+		assert(pos >= 0 && pos < N);
+		return v[pos];
+	}
+
+	int Size() const {return N;}
+};
+
+
+void LU_solve(const S_matrix& L, const S_matrix& U, const std::vector<double>& b, std::vector<double>& x)
+{
+	assert(L.Size() == U.Size());
+	int n = L.Size();
+	assert(b.size() == n && x.size() == n);
+
+	// solve Lx = b
+	for(int k = 0; k < n; k++)
+	{
+		x[k] = b[k];
+#if 0
+		for(int j = 0; j < k; j++)
+		{
+			const sparse_row& r = L.get_vector(j);
+			for(sparse_type::const_iterator it = r.row.begin(); it != r.row.end(); it++)
+			{
+				if(it->first == k)
+					x[k] -= it->second * x[j];
+			}
+		}
+#else
+		const sparse_row& r = L.get_vector(k);
+		for(sparse_type::const_iterator it = r.row.begin(); it != r.row.end(); it++)
+		{
+			if(it->first < k)
+				x[k] -= it->second * x[it->first];
+		}
+#endif
+	}
+
+	// solve Uy = x
+	for(int k = n-1; k >= 0; k--)
+	{
+		const sparse_row& r = U.get_vector(k);
+		for(sparse_type::const_iterator it = r.row.begin(); it != r.row.end(); it++)
+		{
+			if(it->first > k)
+				x[k] -= it->second * x[it->first];
+		}
+		x[k] /= r.get_element(k);
+	}
+	// compute x = x / U(i,i)
+	// for(int k = 0; k < n; k++)
+	// {
+	// 	for(int i = ia[k]; i < ia[k+1]; i++)
+	// 	{
+	// 		int col = ja[i-1] - 1;
+	// 		if(col == k)	x[k] *= a[i-1];
+	// 	}
+	// }
+}
+
 
 
 #endif

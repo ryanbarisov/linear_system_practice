@@ -72,7 +72,7 @@ int main3(int argc, char ** argv)
 	}
 	else
 	{
-		Matrix * A = new MTX_matrix(argv[1]);
+		MTX_matrix * A = new MTX_matrix(argv[1]);
 		int n = A->Size();
 		std::vector<double> x,b;
 		x.resize(n);
@@ -80,14 +80,14 @@ int main3(int argc, char ** argv)
 		for(int i = 0; i < n; i++)
 		{
 			b[i] = sin(i*1.0);
-			x[i] = 1.0;
+			x[i] = 0.0;
 		}
 
 
-		Method * method = new CG_method();	
+		Method * method = new PCG_method();	
 
 
-		if(method->Setup(A) && method->Solve(b,x))
+		if(method->Setup(A, PreconditionerType::ILUC) && method->Solve(b,x))
 		{
 			SaveVector(x, "solution.txt");
 
