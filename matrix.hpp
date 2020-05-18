@@ -533,7 +533,96 @@ struct sparse_row
 		for(sparse_type::const_iterator it = row.begin(); it != row.end(); ++it)
 			std::cout << it->first << ": " << it->second << std::endl;
 	}
+
+	double sparse_dot(const std::vector<double>& v) const
+	{
+		double result = 0.0;
+		int nv = v.size();
+		for(int k = 0; k < row.size(); k++)
+		{
+			int col = row[k].first;
+			assert(col < nv);
+			result += row[k].second * v[col];
+		}
+		return result;
+	}
 };
+
+// methods for AMG construction and setup
+
+double sparse_dot(const sparse_row& r1, const sparse_row& r2)
+{
+	double result = 0.0;
+	int index1 = 0, index2 = 0, i1 = 0, i2 = 0, column1, column2;
+	int size1 = r1.row.size(), size2 = r2.row.size();
+	bool process = i1 < size1 && i2 < size2, updated1 = true, updated2 = true;
+	while(process)
+	{
+		if(updated1)	column1 = r1.row[i1].first;
+		if(updated2)	column2 = r2.row[i2].first;
+		if(column1 < column2)
+		{
+			i1++;
+			updated1 = true;
+			updated2 = false;
+		}
+		else if(column2 < column1)
+		{
+			i2++;
+			updated1 = false;
+			updated2 = true;
+		}
+		else
+		{
+			result += r1.row[i1].second * r2.row[i2].second;
+			i1++;
+			i2++;
+			updated1 = updated2 = true;
+		}
+		process = i1 < size1 && i2 < size2;
+	}
+	return result;
+}
+
+bool strongly_connected(const sparse_row& r, int i, int j, double theta = 0.25)
+{
+	double maxmod = 0.0, elem = 0.0, value;
+	int column;
+	for(int k = 0; k < r.row.size(); k++)
+	{
+		column = r.row[k].first;
+		value = fabs(r.row[k].second);
+		if(column == j)	elem = value;
+		else if(column != i && maxmod < value)	maxmod = value;
+	}
+	return elem >= theta * maxmod;
+}
+
+// sc_set - strongly connected set
+void find_strongly_connected(const sparse_row& r, int i, std::vector<int>& sc_set, double theta = 0.25)
+{
+	sc_set.clear();
+	double maxmod = 0.0, elem, value;
+	int column;
+	for(int k = 0; k < r.row.size(); k++)
+	{
+		column = r.row[k].first;
+		value = fabs(r.row[k].second);
+		if(column != i && maxmod < value)	maxmod = value;
+	}
+	for(int k = 0; k < r.row.size(); k++)
+	{
+		column = r.row[k].first;
+		elem = fabs(r.row[k].second);
+		if(elem >= theta * maxmod)
+		{
+			sc_set.push_back(column);
+		}
+	}
+}
+
+
+
 
 
 #define STORED_BY_ROWS true
@@ -562,15 +651,6 @@ public:
 		delete[] v;
 	}
 
-	void print() const
-	{
-		for(int i = 0; i < N; i++)
-		{
-			std::cout << (stored_by_rows ? "row " : "col" ) << i << std::endl;
-			v[i].print();
-		}
-	}
-
 	void add_element(int row, int col, double val)
 	{
 		assert( ( stored_by_rows && row >= 0 && row < N) || 
@@ -588,6 +668,17 @@ public:
 		}
 	}
 
+	S_matrix(const MTX_matrix& mat) : stored_by_rows(true)
+	{
+		N = mat.M;
+		assert(N > 0);
+		v = new sparse_row[N];
+		for(int i = 0; i < mat.L; i++)
+		{
+			add_element(mat.ia[i], mat.ja[i], mat.a[i]);
+		}
+	}
+
 	void set_vector(int pos, const sparse_row& vec, int begin, int end)
 	{
 		assert(pos >= 0 && pos < N);
@@ -601,6 +692,15 @@ public:
 	}
 
 	int Size() const {return N;}
+
+	void print() const
+	{
+		for(int i = 0; i < N; i++)
+		{
+			std::cout << (stored_by_rows ? "row " : "col" ) << i << std::endl;
+			v[i].print();
+		}
+	}
 };
 
 
