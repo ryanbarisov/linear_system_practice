@@ -7,6 +7,11 @@
 #include <utility>
 #include <algorithm>
 
+
+// #define AMG_COARSE_SOLVE // solve coarsest grid instead of smoothing
+
+
+
 class SolverParameters
 {
 private:
@@ -70,8 +75,6 @@ public:
 	virtual bool PreconditionedSolve(const std::vector<double>& rhs, std::vector<double>& x) = 0;
 };
 
-// forward declarations
-class ILUC_Preconditioner;	
 
 
 class ILUC_Preconditioner : public Preconditioner
@@ -294,52 +297,284 @@ private:
 
 
 	// prolongation from m to m-1, m > 0
-	void prolongation(int _m, const std::vector<double>& e, std::vector<double>& v_out)
+	void prolongation(int m_from, const std::vector<double>& e, std::vector<double>& v_out)
 	{
-		assert(_m > 0);
-		int m = _m - 1;
+		assert(m_from > 0);
+		int m = m_from - 1;
 		int n = Am[m]->Size();
 		v_out.resize(n);
-		const std::vector<int>& C = Cm[m];
-		interpolation_type& W = Wm[m];
+		for(int i = 0; i < n; i++)	v_out[i] = 0.0;
+		const std::vector<int>& C = Cm[m_from];
+		interpolation_type& W = Wm[m_from];
 		std::vector<bool> processed(n,false);
+		std::map<int,int> invC;
 		for(int k = 0; k < C.size(); k++)
 		{
 			int i = C[k];
+			invC[i] = k;
 			v_out[i] = e[k];
 			processed[i] = true;
 		}
 		for(int i = 0; i < n; i++) if(!processed[i])
 		{
 			sparse_row& r = W[i];
-			assert(!r.row.empty());
-			v_out[i] = r.sparse_dot(e);
+			for(int k = 0; k < r.row.size(); k++)
+			{
+				int col = r.row[k].first;
+				v_out[i] += r.row[k].second*e[invC[col]];
+			}
 		}
 	}
 	// restriction from m to m+1
-	void restriction(int _m, const std::vector<double>& e, std::vector<double>& v_out)
+	void restriction(int m_from, const std::vector<double>& e, std::vector<double>& v_out)
 	{
-		int m = _m;
-		int n = Am[m+1]->Size();
-		v_out.resize(n,0.0);
+		int m = m_from+1;
+		int nf = e.size();
+		int nc = Am[m]->Size();
+		v_out.resize(nc);
+		for(int i = 0; i < nc; i++)	v_out[i] = 0.0;
 		const std::vector<int>& C = Cm[m];
 		interpolation_type& W = Wm[m];
-		std::vector<bool> processed(n,false);
+		std::vector<bool> processed(nf,false);
+		// need to construct inverse mapping from C[k] to k to fill coarse system
+		std::map<int,int> invC;
 		for(int k = 0; k < C.size(); k++)
 		{
 			int j = C[k];
-			v_out[j] = e[k];
+			invC[j] = k;
+			v_out[k] = e[j];
 			processed[j] = true;
 		}
-		for(int j = 0; j < n; j++) if(!processed[j])
+		for(int j = 0; j < nf; j++) if(!processed[j])
 		{
 			const sparse_row& r = W[j];
-			assert(!r.row.empty());
 			for(int k = 0; k < r.row.size(); k++)
 			{
 				int row = r.row[k].first;
-				v_out[row] += r.row[k].second*e[j];
+				v_out[invC[row]] += r.row[k].second*e[j];
 			}
+		}
+	}
+
+	void smoothing(int m, std::vector<double>& x, const std::vector<double>& b, int nrelax = 1)
+	{
+		int method = 0;	// 0 - Jacobi, 1 - Gauss-Seidel, 2 - ?
+		for(int k = 0; k < nrelax; k++)
+		{
+			if(method == 0)
+				jacobi(Am[m], x, b);
+			else if(method == 1)
+				gauss_seidel(Am[m], x, b);
+		}
+	}
+
+	// construct system on step m+1 with given system on step m and interpolator matrices
+	// A^{m+1} = I_m^{m+1} A^m I_{m+1}^m
+	void construct_coarse_system(int m_from)
+	{
+		const S_matrix* Amf = Am[m_from];	// fine system
+
+		int m = m_from+1;
+		int nc = Nm[m];					// coarse system size
+		int nf = Am[m_from]->Size();		// fine system size
+
+		// (1) A^{m+1} = I_m^{m+1} A^m
+		// (2) A^{m+1} = A^{m+1} I_{m+1}^m
+		
+		std::cout << "Fine system level " << m_from << " size " << Amf->Size() << std::endl;
+		std::cout << "Coarse system level " << m << " size " << nc << std::endl;
+
+
+		S_matrix* Amc = Am[m];
+		Amc = new S_matrix(nc, true);	// matrix stored by rows
+
+		// need to construct inverse mapping from C[k] to k to fill coarse system
+		std::map<int,int> invC;
+
+		// step (1)
+		const std::vector<int>& C = Cm[m];
+		assert(nc == C.size());
+		interpolation_type& W = Wm[m];
+		std::vector<bool> coarse(nf,false);
+		// coarse indices 
+		for(int k = 0; k < C.size(); k++)
+		{
+			int j = C[k];
+			invC[j] = k;
+			coarse[j] = true;
+		}
+		for(int k = 0; k < C.size(); k++)
+		{
+			int j = C[k];
+			Amc->set_vector(k, Amf->get_vector(j), 0, nf);
+			// sparse_row& r = Amc->get_vector(k);
+			// std::cout << "coarse " << k << " vector: " << std::endl;
+			// r.print();
+			// std::cin.ignore();
+		}
+		// fine indices
+		for(int j = 0; j < nf; j++) if(!coarse[j])
+		{
+			const sparse_row& r = W[j];
+			// std::cout << "Weights row " << j << std::endl;
+			// r.print();
+			// assert(!r.row.empty());
+			for(int k = 0; k < r.row.size(); k++)
+			{
+				int row = r.row[k].first;
+				// std::cout << "coarse " << invC[row] << ":" << std::endl;
+				// Amc->get_vector(invC[row]).print();
+				// std::cout << " add vector " << row << " with coef " << r.row[k].second << ":" << std::endl;
+				// Amf->get_vector(row).print();
+				Amc->add_vector(invC[row], r.row[k].second, Amf->get_vector(j), 0, nf);
+
+				// std::cout << "after adding coarse " << invC[row] << ":" << std::endl;
+				// Amc->get_vector(invC[row]).print();
+				// std::cin.ignore();
+			}
+		}
+
+		// Amc->print();
+		// std::cin.ignore();
+
+		// step (2)
+		S_matrix* A = new S_matrix(nc, true);	// temporary intermediate matrix 
+		for(int Arow = 0; Arow < nc; Arow++)
+		{
+			const sparse_row& r = Amc->get_vector(Arow);
+			sparse_row& r2 = A->get_vector(Arow);
+			for(int k = 0; k < r.row.size(); k++)
+			{
+				int Acol = r.row[k].first;
+				double Aelem = r.row[k].second;
+				if(coarse[Acol])
+				{
+					A->add_element(Arow, invC[Acol], Aelem);
+					// A->add_element(Arow, Acol, Aelem);
+				}
+				else
+				{
+					const sparse_row& rW = W[Acol];
+					for(int kk = 0; kk < rW.row.size(); kk++)
+					{
+						int col = rW.row[kk].first;
+						if(fabs(rW.row[kk].second) > 1e-10)
+						{
+							// std::cout << "A " << Arow << " col " << col 
+							// 	<< " invC(col) " << invC[col] << " elem " << rW.row[kk].second * Aelem
+							// 	<< std::endl;
+							A->add_element(Arow, invC[col], rW.row[kk].second * Aelem);
+						}
+					}
+				}
+			}
+			r2.remove_zeros();
+		}
+
+		S_matrix* tmpA = Amc;
+		Amc = A;
+		A = tmpA;
+
+		delete tmpA;
+
+		Am[m] = Amc;
+		// Am[m]->print();
+
+		char str[256];
+		sprintf(str, "amg_level_%02d.mtx", m);
+		Am[m]->Save(str);
+	}
+
+	void construct_coarsest_inverse()
+	{
+		S_matrix* A = Am[amg_levels-1];
+		int n = A->Size();
+
+		std::vector<double> diag(n);
+		for(int k = 1; k < n; k++)
+		{
+			const sparse_row& r = A->get_vector(k);
+			for(int kk = 0; kk < r.row.size(); kk++)
+			{
+				int i = r.row[kk].first;
+				if(k == i)
+				{
+					diag[k] = r.row[kk].second;
+					break;
+				}
+			}
+		}
+		// ilu0
+		for(int i = 1; i < n; i++)	// loop over rows
+		{
+			double akk, aik;
+			int kb = 0, ke = i;
+			sparse_row& r = A->get_vector(i);
+			for(int kk = 0; kk < r.row.size(); kk++)
+			{
+				int k = r.row[kk].first;
+				if(!(k >= kb && k > ke))	continue;
+				r.row[kk].second /= diag[k];
+				aik = r.row[kk].second;
+
+				const sparse_row& r2 = A->get_vector(k);
+				int jb = k+1, je = n;
+				for(int kkk = kk+1; kkk < r.row.size(); kkk++)
+				{
+					int j = r.row[kkk].first;
+					if(!(j >= jb && j < je))	continue;
+					for(int kkkk = 0; kkkk < r2.row.size(); kkkk++)
+					{
+						if(r2.row[kkkk].first == j)
+						{
+							r.row[kkk].second -= aik*r2.row[kkkk].second;
+						}
+					}
+				}
+			}
+		}
+	}
+
+	void solve_coarsest(std::vector<double>& x, const std::vector<double>& b)
+	{
+		S_matrix* A = Am[amg_levels-1];
+		int n = A->Size();
+
+		// solve Lx = b
+		for(int i = 0; i < n; i++)	// loop over rows
+		{
+			const sparse_row& r = A->get_vector(i);
+			x[i] = b[i];
+			for(int kk = 0; kk < r.row.size(); kk++)
+			{
+				int k = r.row[kk].first;
+				if(k < i)
+					x[i] -= r.row[kk].second*x[k];
+			}
+		}
+		// solve Uy = x
+		for(int i = n-1; i >= 0; i--)	// loop over rows
+		{
+			double akk = 0.0;
+			const sparse_row& r = A->get_vector(i);
+			for(int kk = 0; kk < r.row.size(); kk++)
+			{
+				int k = r.row[kk].first;
+				if(k == i)
+				{
+					akk = r.row[kk].second;
+					break;
+				}
+			}
+			assert(akk != 0.0);
+			x[i] = b[i];
+			for(int kk = 0; kk < r.row.size(); kk++)
+			{
+				int k = r.row[kk].first;
+				if(k > i)
+					x[i] -= r.row[kk].second*x[k];
+			}
+			x[i] /= akk;
 		}
 	}
 
@@ -359,6 +594,7 @@ private:
 				if(row != col && maxmod[row] < value)	maxmod[row] = value;
 			}
 		}
+
 		for(int row = 0; row < n; row++)
 		{
 			const sparse_row& r = pA->v[row];
@@ -390,31 +626,26 @@ private:
 		}
 	}
 
-	void initialize_priority_queue(const std::vector<std::vector<int> >& asc, PriorityQueue<int>& q)
-	{
-		int n = asc.size();
-		for(int i = 0; i < n; i++)
-			q.Push(i, asc[i].size());
-	}
-
 public:
 	AMG_Preconditioner(const MTX_matrix* _pA, SolverParameters parameters) 
 		: Preconditioner(PreconditionerType::AMG, _pA)
 		{
 			amg_levels = std::max(2, parameters.GetIntegerParameter("amg_levels").second);
-			Nm.resize(amg_levels-1);
-			Cm.resize(amg_levels-1);
+			Nm.resize(amg_levels);
+			Cm.resize(amg_levels);
 			Am.resize(amg_levels);
-			Wm.resize(amg_levels-1);
+			Wm.resize(amg_levels);
 			Am[0] = new S_matrix(*_pA);
+			Nm[0] = Am[0]->Size();
+			for(int i = 0; i < Nm[0]; i++)	Cm[0].push_back(i);	// is it needed?
 		}
 
 	AMG_Preconditioner(const AMG_Preconditioner& other) : Preconditioner(PreconditionerType::AMG, other.pA), 
 		amg_levels(other.amg_levels), Nm(other.Nm), Cm(other.Cm), Wm(other.Wm)
 	{
 		Am.resize(amg_levels);
-		Am[0] = new S_matrix(*(other.pA));
-		for(int i = 1; i < amg_levels; i++)
+		//Am[0] = new S_matrix(*(other.pA));
+		for(int i = 0; i < amg_levels; i++)
 			Am[i] = new S_matrix( *(other.Am[i]) );
 	}
 
@@ -429,8 +660,8 @@ public:
 		for(int i = 0; i < amg_levels; i++)
 			if(Am[i] != NULL)	delete Am[i];
 		Am.resize(amg_levels);
-		Am[0] = new S_matrix(*(other.pA));
-		for(int i = 1; i < amg_levels; i++)
+		// Am[0] = new S_matrix(*(other.pA));
+		for(int i = 0; i < amg_levels; i++)
 			Am[i] = new S_matrix( *(other.Am[i]) );
 	}
 
@@ -441,11 +672,16 @@ public:
 	}
 
 
-	void construct_CF_partition(int m)
+	void construct_CF_partition(int m_from)
 	{
-		const S_matrix* pmat = Am[m];
+		bool debug = true;
+
+		int m_to = m_from + 1;
+		int m = m_to;
+
+		const S_matrix* pmat = Am[m_from];
 		int n = pmat->Size();
-		PriorityQueue<int> q(n);
+		PriorityQueue<int, std::greater<int> > q(n);
 		std::vector< std::vector<int> > strong_connections(n);		// strong connections for each grid element
 		std::vector< std::vector<int> > adj_strong_connections(n);	// adjacent strong connections for each element
 
@@ -454,7 +690,8 @@ public:
 
 		find_strongly_connected(pmat, strong_connections);
 		find_adjacent_strongly_connected(strong_connections, adj_strong_connections);
-		initialize_priority_queue(adj_strong_connections, q);
+		for(int i = 0; i < adj_strong_connections.size(); i++)
+			q.Push(i, adj_strong_connections[i].size());
 
 		int max_asc_amount = n;	// maximum amount of adjacent strong connections cannot be more than matrix size
 		while(!q.Empty())
@@ -470,13 +707,15 @@ public:
 				{
 					F.push_back(j);
 					// remove j from q
-					q.IncreaseKey(j, max_asc_amount);
-					q.Pop();
+					q.ChangeKey(j, n);
+					assert( q.Pop() == j );
 					const std::vector<int>& sc_j = strong_connections[j];
 					for(int kk = 0; kk < sc_j.size(); kk++)
 					{
 						int l = sc_j[kk];
-						if(q.Contains(l))	q.IncreaseKey(l, q.GetKey(l)+1);
+						if(q.Contains(l))	
+							q.ChangeKey(l, q.GetKey(l)+1);
+							// q.IncreaseKey(l, q.GetKey(l)+1);
 					}
 				}
 			}
@@ -484,7 +723,9 @@ public:
 			for(int k = 0; k < sc_i.size(); k++)
 			{
 				int j = sc_i[k];
-				if(q.Contains(j))	q.DecreaseKey(j, q.GetKey(j)-1);
+				if(q.Contains(j))	
+					q.ChangeKey(j, q.GetKey(j)-1);
+					// q.DecreaseKey(j, q.GetKey(j)-1);
 			}
 		}
 	
@@ -492,7 +733,25 @@ public:
 		std::sort(C.begin(), C.end());
 		std::sort(F.begin(), F.end());
 		std::vector<bool> F_available(F.size(), true);
-		int F_amount = F.size();	// amount of find mesh elements
+		int F_amount = F.size();	// amount of fine mesh elements
+
+		if(false)
+		{
+			std::cout << "before extension coarse " << C.size() << std::endl;
+			for(int i = 0; i < C.size(); i++)
+			{
+				std::cout << C[i] << " ";
+			}
+			std::cout << std::endl;
+			std::cout << "before extension fine " << F.size() << std::endl;
+			for(int i = 0; i < F.size(); i++)
+			{
+				std::cout << F[i] << " ";
+			}
+
+			std::cout << std::endl;
+			std::cin.ignore();
+		}
 
 		for(int k = 0; k < F.size(); k++)
 		{
@@ -536,7 +795,7 @@ public:
 				F_available[k] = false;
 				F_amount--;
 			}
-			else
+			else if(!hat_Cm.empty())
 			{
 				int l = hat_Cm[0];
 				std::vector<int>::iterator jt = C.begin();
@@ -553,9 +812,20 @@ public:
 			}
 		}
 
+		if(false)
+		{
+			std::cout << "after extension coarse " << C.size() << " fine " << F_amount << std::endl;
+			for(int i = 0; i < C.size(); i++)
+			{
+				std::cout << C[i] << " ";
+			}
+			std::cout << std::endl;
+			std::cin.ignore();
+		}
+
 		Nm[m] = C.size();
 
-		// repartition F so that disabled elements to appear at the end
+		// repartition F so that disabled elements appear at the end
 		int nF = F.size(), itmp;
 		int index1 = 0, index2 = nF-1;
 		while(index1 < index2)
@@ -577,6 +847,11 @@ public:
 		F.resize(nF);
 		std::sort(F.begin(), F.end());
 
+		if(false)
+		{
+			std::cout << "fine " << F.size() << std::endl;
+		}
+
 		// determine interpolation weights
 		interpolation_type& W = Wm[m];
 
@@ -585,12 +860,15 @@ public:
 		for(int k = 0; k < F.size(); k++)
 		{
 			int i = F[k];
-			std::map<int,double> Im;	// interpolation connections and intermediate coefficients
+			// std::map<int,double> Im;	// interpolation connections and intermediate coefficients
+			std::vector<int> Im_col;
+			std::vector<double> Im_coef;
 			std::vector<int> Ds;	// skipped strong connections
-			std::vector<int> Dw;	// skipped weak connections
+			// std::vector<int> Dw;	// skipped weak connections
 			const std::vector<int>& sc_i = strong_connections[i];
 			// initialize connections
 			// strong_connections is sorted, that's why Im and Ds are also sorted 
+			const sparse_row& ri = pmat->v[i];
 			for(int kk = 0; kk < sc_i.size(); kk++)
 			{
 				int l = sc_i[kk];
@@ -598,26 +876,62 @@ public:
 				{
 					// find element with column j
 					val = 0.0;
-					const sparse_row& r = pmat->v[i];
-					for(int kkk = 0; kkk < r.row.size() && val != 0.0; kkk++)
-						if(r.row[kkk].first == l)	val = r.row[kkk].second;
-					Im.insert(std::make_pair(l,val));
+					for(int kkk = 0; kkk < ri.row.size(); kkk++)
+						if(ri.row[kkk].first == l)
+						{
+							val = ri.row[kkk].second;
+							break;
+						}
+					if(val != 0.0)
+					{
+						Im_col.push_back(l);
+						Im_coef.push_back(val);
+					}
 				}
 				else
 					Ds.push_back(l);
 			}
+			for(int kk = 0; kk < Im_col.size(); kk++)
+				for(int kkk = kk+1; kkk < Im_col.size(); kkk++)
+				{
+					if(Im_col[kk] > Im_col[kkk])
+					{
+						col = Im_col[kk];
+						Im_col[kk] = Im_col[kkk];
+						Im_col[kkk] = col;
+						val = Im_coef[kk];
+						Im_coef[kk] = Im_coef[kkk];
+						Im_coef[kkk] = val;
+					}
+				}
+			
+			if(false)
+			{
+				std::cout << "Im " << i << ":\n";
+				for(int kk = 0; kk < Im_col.size(); kk++)
+				{
+					std::cout << " col " << Im_col[kk] << " val " << Im_coef[kk];
+				}
+				std::cout << std::endl;
+				std::cout << "Ds " << i << ":\n";
+				for(int kk = 0; kk < Ds.size(); kk++)
+				{
+					std::cout << " " << Ds[kk];
+				}
+				std::cout << std::endl;
+				std::cin.ignore();
+			}
 			
 			di = 0.0;
-			const sparse_row& ri = pmat->v[i];
 			for(int kk = 0; kk < ri.row.size(); kk++)
 			{
 				col = ri.row[kk].first;
 				val = ri.row[kk].second;
 				if(col == i)
 					di += val;
-				else if(fabs(val) > 1e-15 && col != i && !std::binary_search(sc_i.begin(), sc_i.end(), col))
+				else if(!std::binary_search(sc_i.begin(), sc_i.end(), col))
 				{
-					Dw.push_back(col);
+					// Dw.push_back(col);
 					di += val;
 				}
 			}
@@ -627,31 +941,62 @@ public:
 				const std::vector<int>& sc_j = strong_connections[j];
 				const sparse_row& rj = pmat->v[j];
 				sj = 0.0;
-				std::vector<std::pair<int,double> > columns_values_Im_cap_Sj;
+				// std::vector<std::pair<int,double> > columns_values_Im_cap_Sj;
+				std::map<int,double> columns_values_Im_cap_Sj;
+				std::vector<int> intersection;	// work vector to store sorted array intersections
+				std::set_intersection(sc_j.begin(),sc_j.end(),Im_col.begin(),Im_col.end(),std::back_inserter(intersection));
 				for(int kkk = 0; kkk < rj.row.size(); kkk++) 
 				{
 					col = rj.row[kkk].first;
-					if(Im.find(col) != Im.end() && std::binary_search(sc_j.begin(),sc_j.end(),col))	
+					if(std::binary_search(intersection.begin(),intersection.end(),col))	
 					{
-						val = rj.row[kkk].second;
-						sj += val;
+						double ajk = rj.row[kkk].second;
+						sj += ajk;
 						val = 0.0;
 						for(int kkkk = 0; kkkk < ri.row.size(); kkkk++)
-							if(ri.row[kkkk].first == j)	val = ri.row[kkkk].second;
-						columns_values_Im_cap_Sj.push_back(std::make_pair(col, val*rj.row[kkk].second));
+							if(ri.row[kkkk].first == j)
+							{
+								val = ri.row[kkkk].second;
+								break;
+							}
+						// columns_values_Im_cap_Sj.push_back(std::make_pair(col, val*ajk));
+						// std::cout << "update column " << col << " j " << j << " k " << col << " aij " << val << " ajk " << ajk << std::endl;
+						columns_values_Im_cap_Sj[col] += val*ajk;
 					}
 				}
 				if(sj != 0.0)
 				{
-					for(int kkk = 0; kkk < columns_values_Im_cap_Sj.size(); kkk++)
-						Im[columns_values_Im_cap_Sj[kkk].first] += columns_values_Im_cap_Sj[kkk].second / sj;
+					std::vector<int>::const_iterator it_beg = Im_col.begin(), it_end = Im_col.end();
+					// for(int kkk = 0; kkk < columns_values_Im_cap_Sj.size(); kkk++)
+					for(std::map<int,double>::const_iterator itt = columns_values_Im_cap_Sj.begin(); itt != columns_values_Im_cap_Sj.end(); itt++)
+					{
+						std::vector<int>::const_iterator it = std::find(it_beg,it_end,itt->first);
+						assert(it != it_end);
+						int ind = it-it_beg;
+
+						// std::cout << "update " << ind << " before " << Im_coef[ind] << " += " << itt->second << "/" << sj << std::endl;
+						Im_coef[ind] += itt->second / sj;
+						// std::cout << "update " << ind << " after " << Im_coef[ind] << std::endl;
+					}
+				}
+				// std::cout << "Ds " << i << " index " << j << " sj " << sj << std::endl;
+			}
+			if(!Im_col.empty())
+			{
+				sparse_row& rW = W[i];
+				for(int kk = 0; kk < Im_col.size(); kk++)
+				{
+					rW.add_element(std::make_pair(Im_col[kk], -Im_coef[kk] / di));
+					// rW.add_element(std::make_pair(Im_col[kk], 1.0));
+					// std::cout << "i " << i << " col " << Im_col[kk] << " val " 
+					// 	<< -Im_coef[kk] / di << " di " << di << " it->second " << Im_coef[kk] << std::endl;
 				}
 			}
-			sparse_row& rW = W[i];
-			for(std::map<int,double>::const_iterator it = Im.begin(); it != Im.end(); ++it)
+			else
 			{
-				rW.add_element(std::make_pair(it->first, -it->second / di));
+				//?
 			}
+			// std::cin.ignore();
 		}
 	}
 	
@@ -660,18 +1005,17 @@ public:
 
 	bool SetupAMG(int m)
 	{
-		construct_CF_partition(m);
-		// construct_interpolator(m);
-		// construct_system(m+1);
-		bool stop = m < amg_levels-1;
+		bool stop = m >= amg_levels-1;
 		if(!stop)
 		{
+			construct_CF_partition(m);
+			construct_coarse_system(m);
 			SetupAMG(m+1);
 		}
+#if defined(AMG_COARSE_SOLVE)
 		else
-		{
-			// construct_inverse();
-		}
+			construct_coarsest_inverse();
+#endif
 		return true;
 	}
 
@@ -680,8 +1024,109 @@ public:
 		return SetupAMG(0);
 	}
 
+private:
+	void V_cycle(int m, std::vector<double>& x, const std::vector<double>& b)
+	{
+		const S_matrix* A = Am[m];
+		bool stop = m >= amg_levels-2;
+		int niters_smooth = 2;
+		// pre-smoothing
+		smoothing(m,x,b, niters_smooth);
+		// compute residual r = b - Ax
+		int nc = Am[m+1]->Size();
+		int n = A->Size();
+		std::vector<double> resid(n), resid_restricted(nc), x0(nc, 0.0);
+		for(int i = 0; i < n; i++)
+		{
+			const sparse_row& r = A->get_vector(i);
+			resid[i] = b[i];
+			for(int j = 0; j < r.row.size(); j++)
+				resid[i] -= r.row[j].second * x[r.row[j].first];
+		}
+		restriction(m,resid,resid_restricted);
+		if(!stop)
+			V_cycle(m+1,x0,resid_restricted);
+		else
+		{
+#if defined(AMG_COARSE_SOLVE)
+			solve_coarsest(x0,resid_restricted);
+#else
+			smoothing(m+1,x0,resid_restricted, 1);
+#endif
+		}	
+		prolongation(m+1,x0,resid);
+		for(int i = 0; i < n; i++)
+			x[i] += resid[i];
+		// post-smoothing
+		smoothing(m,x,b, niters_smooth);
+	}
+
+	void W_cycle(int m, std::vector<double>& x, const std::vector<double>& b)
+	{
+		const S_matrix* A = Am[m];
+		bool stop = m >= amg_levels-2;
+		int niters_smooth = 2;
+		// pre-smoothing
+		smoothing(m,x,b, niters_smooth);
+		// compute residual r = b - Ax
+		int nc = Am[m+1]->Size();
+		int n = A->Size();
+		std::vector<double> resid(n), resid_restricted(nc), x0(nc, 0.0);
+		for(int i = 0; i < n; i++)
+		{
+			const sparse_row& r = A->get_vector(i);
+			resid[i] = b[i];
+			for(int j = 0; j < r.row.size(); j++)
+				resid[i] -= r.row[j].second * x[r.row[j].first];
+		}
+		restriction(m,resid,resid_restricted);
+		if(!stop)
+			W_cycle(m+1,x0,resid_restricted);
+		else
+		{
+#if defined(AMG_COARSE_SOLVE)
+			solve_coarsest(x0,resid_restricted);
+#else
+			smoothing(m+1,x0,resid_restricted, 1);
+#endif
+		}
+		prolongation(m+1,x0,resid);
+		for(int i = 0; i < n; i++)
+			x[i] += resid[i];
+		// re-smoothing
+		smoothing(m,x,b, niters_smooth);
+		// compute residual r = b - Ax
+		for(int i = 0; i < n; i++)
+		{
+			const sparse_row& r = A->get_vector(i);
+			resid[i] = b[i];
+			for(int j = 0; j < r.row.size(); j++)
+				resid[i] -= r.row[j].second * x[r.row[j].first];
+		}
+		restriction(m,resid,resid_restricted);
+		if(!stop)
+			W_cycle(m+1,x0,resid_restricted);
+		else
+		{
+#if defined(AMG_COARSE_SOLVE)
+			solve_coarsest(x0,resid_restricted);
+#else
+			smoothing(m+1,x0,resid_restricted, 1);
+#endif
+		}
+		prolongation(m+1,x0,resid);
+		for(int i = 0; i < n; i++)
+			x[i] += resid[i];
+		// post-smoothing
+		smoothing(m,x,b, niters_smooth);
+	}
+public:
+
 	bool PreconditionedSolve(const std::vector<double>& rhs, std::vector<double>& x)
 	{
+		int n = x.size();
+		for(int i = 0; i < n; i++)	x[i] = 0.0;
+		W_cycle(0, x, rhs);	
 		return true;
 	}
 };
@@ -706,7 +1151,11 @@ static Preconditioner * CreatePreconditioner(PreconditionerType ptype, const MTX
 	{
 		return new ILUC_Preconditioner(pA, parameters);
 	}
-	else 
+	else if(ptype == PreconditionerType::AMG)
+	{
+		return new AMG_Preconditioner(pA, parameters);
+	}
+	else
 	{
 		std::cerr << "Sorry, preconditioner was not implemented " << std::endl;
 		return NULL;

@@ -1,6 +1,6 @@
 #include "matrix.hpp"
 #include "method.hpp"
-
+#include <cstring>
 
 
 
@@ -68,7 +68,7 @@ int main3(int argc, char ** argv)
 {
 	if(argc < 2)
 	{
-		std::cout << "Usage: ./main <csr_matrix.mat>" << std::endl;
+		std::cout << "Usage: ./main <csr_matrix.mat> <preconditioner_type=AMG|ILUC>" << std::endl;
 	}
 	else
 	{
@@ -79,18 +79,39 @@ int main3(int argc, char ** argv)
 		b.resize(n);
 		for(int i = 0; i < n; i++)
 		{
-			b[i] = sin(i*1.0);
+			b[i] = i;
 			x[i] = 0.0;
 		}
 
+		PreconditionerType ptype;
+		if(argc > 2)
+		{
+			std::cout << argv[2] << " is AMG? " << !strcmp(argv[2], "AMG") << " is ILUC? " << !strcmp(argv[2], "ILUC") << std::endl;
+			if(!strcmp(argv[2], "AMG"))	
+				ptype = PreconditionerType::AMG;
+			else if(!strcmp(argv[2], "ILUC"))
+				ptype = PreconditionerType::ILUC;
+			else
+				ptype = PreconditionerType::NONE;
+		}
+		bool preconditioned = ptype != PreconditionerType::NONE;
+		if(!preconditioned)	std::cout << "Use CG without preconditioning" << std::endl;
 
-		Method * method = new PCG_method();	
+
+		Method * method;
+		if(preconditioned) 
+			method = new PCG_method();
+		else
+		 	method = new CG_method();
+		method->SetIntegerParameter("maximum_iterations", 100);
+		method->SetIntegerParameter("amg_levels", 3);
+		method->SetRealParameter("drop_tolerance", 1e-4);
+		method->SetIntegerParameter("level_of_fill", 80);
 
 
-		if(method->Setup(A, PreconditionerType::ILUC) && method->Solve(b,x))
+		if(method->Setup(A, ptype) && method->Solve(b,x))
 		{
 			SaveVector(x, "solution.txt");
-
 		}
 		A->Save("A.mtx");
 

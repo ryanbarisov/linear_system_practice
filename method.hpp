@@ -207,7 +207,7 @@ public:
 
 			// if(iter % 10 == 0)
 			{
-				std::cout << "iter\t" << std::setw(4) << iter << "\trel_err\t" << std::setw(10) << resid/resid0 << "\t\t|\t" << std::setw(10) << reltol << "\r";
+				std::cout << "iter\t" << std::setw(4) << iter << "\trel_err\t" << std::setw(10) << resid/resid0 << "\t\t|\t" << std::setw(10) << reltol << "\n";
 				std::cout.flush();
 				// std::cin.ignore();
 			}

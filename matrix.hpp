@@ -477,7 +477,7 @@ struct sparse_row
 	sparse_row& operator+=(const sparse_row& other)
 	{
 		for(sparse_type::const_iterator it = other.row.begin(); it != other.row.end(); ++it)
-			add_element(*it);
+			add_element(*it, true);
 		return *this;
 	}
 
@@ -519,6 +519,17 @@ struct sparse_row
 		sparse_row r = *this;
 		r *= alpha;
 		return r;
+	}
+
+	void remove_zeros() 
+	{
+		for(int i = 0; i < row.size();)
+		{
+			if(fabs(row[i].second) < 1e-10)
+				row.erase(row.begin()+i);
+			else
+				i++;
+		}
 	}
 
 	double get_element(int index) const
@@ -659,12 +670,12 @@ public:
 		if(stored_by_rows)
 		{
 			e = std::make_pair(col, val);
-			v[row].add_element(e);
+			v[row].add_element(e,true);
 		}
 		else
 		{
 			e = std::make_pair(row, val);
-			v[col].add_element(e);
+			v[col].add_element(e,true);
 		}
 	}
 
@@ -675,7 +686,7 @@ public:
 		v = new sparse_row[N];
 		for(int i = 0; i < mat.L; i++)
 		{
-			add_element(mat.ia[i], mat.ja[i], mat.a[i]);
+			add_element(mat.ia[i]-1, mat.ja[i]-1, mat.a[i]);
 		}
 	}
 
@@ -685,7 +696,19 @@ public:
 		v[pos].assign(vec,begin,end);
 	}
 
+	void add_vector(int pos, double coef, const sparse_row& vec, int begin, int end)
+	{
+		assert(pos >= 0 && pos < N);
+		v[pos].plus(coef, vec, begin, end);
+	}
+
 	const sparse_row& get_vector(int pos) const 
+	{
+		assert(pos >= 0 && pos < N);
+		return v[pos];
+	}
+
+	sparse_row& get_vector(int pos) 
 	{
 		assert(pos >= 0 && pos < N);
 		return v[pos];
@@ -701,7 +724,90 @@ public:
 			v[i].print();
 		}
 	}
+
+	void Save(const char * filename) const
+	{
+		std::ofstream ofs(filename);
+		ofs << "%% MTX Format matrix" << std::endl;
+		for(int i = 0; i < N; i++)
+		{
+			const sparse_row& r = v[i];
+			for(int k = 0; k < r.row.size(); k++)
+			{
+				int col = r.row[k].first;
+				double val = r.row[k].second;
+				ofs << i+1 << " " << col+1 << " " << val << std::endl;
+			}
+		}
+		ofs.close();
+	}
 };
+
+
+void jacobi(const S_matrix* A, std::vector<double>& x, const std::vector<double>& b)
+{
+	int n = A->Size();
+	std::vector<double> x_old = x;
+	for(int i = 0; i < n; i++)
+	{
+		const sparse_row& r = A->get_vector(i);
+		double aij, aii = 0.0;
+		x[i] = b[i];
+		for(int k = 0; k < r.row.size(); k++)
+		{
+			int j = r.row[k].first;
+			aij = r.row[k].second;
+			if(j == i)
+				aii = aij;
+			else
+				x[i] -= aij*x_old[j];
+		}
+		if(aii == 0.0)
+		{
+			std::cout << "zero diagonal row " << i << std::endl;
+			r.print();
+		}
+		assert(aii != 0.0);
+		x[i] /= aii;
+	}
+}
+
+void gauss_seidel(const S_matrix* A, std::vector<double>& x, const std::vector<double>& b)
+{
+	double w = 1.0;
+
+	int n = A->Size();
+	std::vector<double> x_old = x;
+	for(int i = 0; i < n; i++)
+	{
+		const sparse_row& r = A->get_vector(i);
+		double aij, aii = 0.0;
+		x[i] = b[i];
+		for(int k = 0; k < r.row.size(); k++)
+		{
+			int j = r.row[k].first;
+			aij = r.row[k].second;
+			if(j == i)
+				aii = aij;
+			else if(j > i)
+				x[i] -= aij * x_old[j];
+			else // if (j < i)
+				x[i] -= aij * x[j];
+		}
+		if(aii == 0.0)
+		{
+			std::cout << "zero diagonal row " << i << std::endl;
+			r.print();
+		}
+		assert(aii != 0.0);
+		x[i] /= aii;
+	}
+	if(w != 1.0)
+		for(int i = 0; i < n; i++)
+		{
+			x[i] = (1.0-w)*x_old[i] + w*x[i];
+		}
+}
 
 
 void LU_solve(const S_matrix& L, const S_matrix& U, const std::vector<double>& b, std::vector<double>& x)
@@ -756,6 +862,39 @@ void LU_solve(const S_matrix& L, const S_matrix& U, const std::vector<double>& b
 	// }
 }
 
+
+
+int check_nans(const std::vector<double>& x)
+{
+	int n = x.size();
+	for(int i = 0; i < n; i++)
+		if(std::isnan(x[i]) || std::isinf(x[i]))
+		{
+			std::cerr << "x " << i << " is " << (std::isnan(x[i]) ? " nan " : " inf ") << std::endl;
+			return i;
+		}
+	return -1;
+}
+
+int check_nans(const S_matrix* A)
+{
+	int n = A->Size();
+	for(int i = 0; i < n; i++)
+	{
+		const sparse_row& r = A->get_vector(i);
+		for(int k = 0; k < r.row.size(); k++)
+		{
+			double val = r.row[k].second;
+			int j = r.row[k].first;
+			if(std::isnan(val) || std::isinf(val))
+			{
+				std::cerr << "A " << i << " " << j << " is " << (std::isnan(val) ? " nan " : " inf ") << std::endl;
+				return i;
+			}
+		}
+	}
+	return -1;
+}
 
 
 #endif
