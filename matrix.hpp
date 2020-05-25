@@ -597,6 +597,7 @@ double sparse_dot(const sparse_row& r1, const sparse_row& r2)
 
 bool strongly_connected(const sparse_row& r, int i, int j, double theta = 0.25)
 {
+	if(i == j)	return false;
 	double maxmod = 0.0, elem = 0.0, value;
 	int column;
 	for(int k = 0; k < r.row.size(); k++)

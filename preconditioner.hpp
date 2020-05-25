@@ -358,7 +358,7 @@ private:
 
 	void smoothing(int m, std::vector<double>& x, const std::vector<double>& b, int nrelax = 1)
 	{
-		int method = 0;	// 0 - Jacobi, 1 - Gauss-Seidel, 2 - ?
+		int method = 1;	// 0 - Jacobi, 1 - Gauss-Seidel, 2 - ?
 		for(int k = 0; k < nrelax; k++)
 		{
 			if(method == 0)
@@ -580,7 +580,8 @@ private:
 
 	void find_strongly_connected(const S_matrix* pA, std::vector<std::vector<int> >& sc, double theta = 0.25)
 	{
-		int n = pA->Size(), row, col, value;
+		int n = pA->Size(), row, col;
+		double value;
 		std::vector<double> maxmod(n, 0.0);
 		sc.resize(n);
 
@@ -604,10 +605,10 @@ private:
 			{
 				col = r.row[j].first;
 				value = fabs(r.row[j].second);
-				if(value > theta * rowmax)	sci.push_back(col);
+				if(row != col && value > theta * rowmax)	sci.push_back(col);
 			}
 			// sort to use binary search over strong connections later
-			if(!sc[row].empty())	std::sort(sc[row].begin(), sc[row].end());
+			if(!sci.empty())	std::sort(sci.begin(), sci.end());
 		}
 	}
 
@@ -787,25 +788,31 @@ public:
 					hat_Cm.push_back(j);
 				}
 			}
-			if(hat_Cm.size() > 1)
+			std::vector<int>::iterator Cb = C.begin(), Ce = C.end(), jt = Cb;
+			if(hat_Cm.size() > 1 && !std::binary_search(Cb, Ce, i))
 			{
-				std::vector<int>::iterator jt = C.begin();
 				while(jt != C.end() && i >= *jt)	++jt;
 				C.insert(jt, i);
-				F_available[k] = false;
-				F_amount--;
+				// std::cout << "case 1 extend C add " << i << std::endl;
+				if(F_available[k])
+				{
+					F_available[k] = false;
+					F_amount--;
+					// std::cout << "case 1 shrink F remove " << i << std::endl;
+				}
 			}
-			else if(!hat_Cm.empty())
+			else if(!hat_Cm.empty() && !std::binary_search(Cb, Ce, hat_Cm[0]))
 			{
 				int l = hat_Cm[0];
-				std::vector<int>::iterator jt = C.begin();
-				while(jt != C.end() && l >= *jt)	++jt;
+				while(jt != Ce && l >= *jt)	++jt;
 				C.insert(jt, l);
+				// std::cout << "case 2 extend C add " << l << std::endl;
 
 				int kk = 0;
-				while(kk < F.size() && l < F[kk])	++kk;
+				while(kk < F.size() && F[kk] < l)	++kk;
 				if(kk < F.size() && l == F[kk])
 				{
+					// std::cout << "case 2 shrink F remove " << l << std::endl;
 					F_available[kk] = false;
 					F_amount--;
 				}
@@ -818,6 +825,14 @@ public:
 			for(int i = 0; i < C.size(); i++)
 			{
 				std::cout << C[i] << " ";
+			}
+			std::cout << std::endl;
+			int nfine = 0;
+			for(int i = 0; i < F.size(); i++) if(F_available[i])	nfine++;
+			std::cout << "after extension fine " << nfine << std::endl;
+			for(int i = 0; i < F.size(); i++) if(F_available[i])
+			{
+				std::cout << F[i] << " ";
 			}
 			std::cout << std::endl;
 			std::cin.ignore();
@@ -1126,7 +1141,7 @@ public:
 	{
 		int n = x.size();
 		for(int i = 0; i < n; i++)	x[i] = 0.0;
-		W_cycle(0, x, rhs);	
+		V_cycle(0, x, rhs);	
 		return true;
 	}
 };

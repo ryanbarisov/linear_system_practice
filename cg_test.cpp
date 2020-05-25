@@ -3,6 +3,7 @@
 #include <cstring>
 
 
+double Timer();
 
 
 int main2(int argc, char ** argv)
@@ -104,20 +105,30 @@ int main3(int argc, char ** argv)
 		else
 		 	method = new CG_method();
 		method->SetIntegerParameter("maximum_iterations", 100);
-		method->SetIntegerParameter("amg_levels", 3);
+		method->SetIntegerParameter("amg_levels", 2);
 		method->SetRealParameter("drop_tolerance", 1e-4);
 		method->SetIntegerParameter("level_of_fill", 80);
 
+		double t_precond = Timer(), t_solve;
+		bool precond = method->Setup(A, ptype);
+		t_precond = Timer() - t_precond;
 
-		if(method->Setup(A, ptype) && method->Solve(b,x))
+		if(precond)
 		{
-			SaveVector(x, "solution.txt");
+			std::cout << "Preconditioner time: " << t_precond << std::endl;
+			t_solve = Timer();
+			bool solve = method->Solve(b,x);
+			t_solve = Timer() - t_solve;
+			if(solve)
+			{
+				std::cout << "Solve time: " << t_solve << std::endl;
+				SaveVector(x, "solution.txt");
+			}
 		}
-		A->Save("A.mtx");
+		// A->Save("A.mtx");
 
 		delete method;
 		delete A;
-		std::cin.ignore();
 	}
 
 	
