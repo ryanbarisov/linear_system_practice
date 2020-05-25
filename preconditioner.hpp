@@ -1141,7 +1141,7 @@ public:
 	{
 		int n = x.size();
 		for(int i = 0; i < n; i++)	x[i] = 0.0;
-		V_cycle(0, x, rhs);	
+		W_cycle(0, x, rhs);	
 		return true;
 	}
 };
