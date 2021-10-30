@@ -1,7 +1,7 @@
 *.mtx
-*.gch
 *~
-a.out
+build/
+old/
 *.dat
 *.txt
-data/archives
+data/
