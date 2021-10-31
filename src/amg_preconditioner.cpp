@@ -4,13 +4,15 @@
 #include <method.h>
 #include <algorithm>
 
-#define AMG_COARSE_SOLVE // solve coarsest grid instead of smoothing
+//#define AMG_COARSE_SOLVE // solve coarsest grid instead of smoothing
 
 
 AMG_Preconditioner::AMG_Preconditioner(const SparseMatrix* pA, SolverParameters parameters) 
 	: Preconditioner(PreconditionerType::AMG, pA)
 	{
 		amg_levels = std::max(2, parameters.GetIntegerParameter("amg_levels").second);
+		niters_smooth = std::max(0, parameters.GetIntegerParameter("niters_smooth").second);
+		w_cycle = std::max(0, parameters.GetIntegerParameter("w_cycle").second);
 		Nm.resize(amg_levels);
 		Cm.resize(amg_levels);
 		Am.resize(amg_levels);
@@ -21,7 +23,8 @@ AMG_Preconditioner::AMG_Preconditioner(const SparseMatrix* pA, SolverParameters 
 	}
 
 AMG_Preconditioner::AMG_Preconditioner(const AMG_Preconditioner& other) : Preconditioner(PreconditionerType::AMG, other.pA), 
-	amg_levels(other.amg_levels), Nm(other.Nm), Cm(other.Cm), Wm(other.Wm)
+	amg_levels(other.amg_levels), niters_smooth(other.niters_smooth), w_cycle(other.w_cycle),
+	Nm(other.Nm), Cm(other.Cm), Wm(other.Wm)
 {
 	Am.resize(amg_levels);
 	for(int i = 0; i < amg_levels; i++)
@@ -33,6 +36,8 @@ AMG_Preconditioner& AMG_Preconditioner::operator=(const AMG_Preconditioner& othe
 	mytype = PreconditionerType::AMG;
 	pA = other.pA;
 	amg_levels = other.amg_levels;
+	niters_smooth = other.niters_smooth;
+	w_cycle = other.w_cycle;
 	Nm = other.Nm;
 	Cm = other.Cm;
 	Wm = other.Wm;
@@ -58,7 +63,10 @@ bool AMG_Preconditioner::SetupPreconditioner()
 bool AMG_Preconditioner::PreconditionedSolve(const std::vector<double>& rhs, std::vector<double>& x)
 {
 	std::fill(x.begin(), x.end(), 0.0);
-	V_cycle(0, x, rhs);
+	if(w_cycle) 
+		W_cycle(0, x, rhs);
+	else 
+		V_cycle(0, x, rhs);
 	return true;
 }
 
@@ -216,100 +224,9 @@ void AMG_Preconditioner::construct_coarse_system(int m_from)
 }
 
 
-void construct_inverse(SparseMatrix* pA)
-{
-	int n = pA->Size();
-
-	std::vector<double> diag(n);
-	for(int row = 1; row < n; row++)
-	{
-		const sparse_row& r = (*pA)[row];
-		for(int k = 0; k < r.row.size(); k++)
-		{
-			int col = r.row[k].first;
-			if(row == col)
-			{
-				diag[row] = r.row[k].second;
-				break;
-			}
-		}
-	}
-	// ilu0
-	for(int row = 1; row < n; row++)	// loop over rows
-	{
-		double akk, aik;
-		int cbegin = 0, cend = row;
-		sparse_row& r = (*pA)[row];
-		for(int j1 = 0; j1 < r.row.size(); j1++)
-		{
-			int col1 = r.row[j1].first;
-			if(!(col1 >= cbegin && col1 > cend))	continue;
-			r.row[j1].second /= diag[col1];
-			aik = r.row[j1].second;
-
-			const sparse_row& r2 = (*pA)[col1];
-			int ccbegin = col1+1, ccend = n;
-			for(int j2 = j1+1; j2 < r.row.size(); j2++)
-			{
-				int col2 = r.row[j2].first;
-				if(!(col2 >= ccbegin && col2 < ccend))	continue;
-				for(int j3 = 0; j3 < r2.row.size(); j3++)
-				{
-					if(r2.row[j3].first == col2)
-					{
-						r.row[j2].second -= aik*r2.row[j3].second;
-					}
-				}
-			}
-		}
-	}
-}
-
 void AMG_Preconditioner::construct_coarsest_inverse()
 {
-	return construct_inverse(Am[amg_levels-1]);
-}
-
-void LU_in_place_solve(SparseMatrix* pA, const std::vector<double>& b, std::vector<double>& x)	
-{
-	int n = pA->Size();
-
-	// solve Lx = b
-	for(int i = 0; i < n; i++)	// loop over rows
-	{
-		const sparse_row& r = (*pA)[i];
-		x[i] = b[i];
-		for(int kk = 0; kk < r.row.size(); kk++)
-		{
-			int row = r.row[kk].first;
-			if(row < i)
-				x[i] -= r.row[kk].second*x[row];
-		}
-	}
-	// solve Uy = x
-	for(int i = n-1; i >= 0; i--)	// loop over rows
-	{
-		double akk = 0.0;
-		const sparse_row& r = (*pA)[i];
-		for(int kk = 0; kk < r.row.size(); kk++)
-		{
-			int row = r.row[kk].first;
-			if(row == i)
-			{
-				akk = r.row[kk].second;
-				break;
-			}
-		}
-		assert(akk != 0.0);
-		x[i] = b[i];
-		for(int kk = 0; kk < r.row.size(); kk++)
-		{
-			int row = r.row[kk].first;
-			if(row > i)
-				x[i] -= r.row[kk].second*x[row];
-		}
-		x[i] /= akk;
-	}
+	return ILU0_Preconditioner::construct_inverse(Am[amg_levels-1]);
 }
 
 void AMG_Preconditioner::solve_coarsest(std::vector<double>& x, const std::vector<double>& b)
@@ -331,7 +248,7 @@ void find_strongly_connected(const SparseMatrix* pA, std::vector<std::vector<int
 		{
 			col = r.row[j].first;
 			val = fabs(r.row[j].second);
-			if(row != col && maxmod[row] < val)	maxmod[row] = val;
+			if(maxmod[row] < val)	maxmod[row] = val;
 		}
 	}
 
@@ -344,7 +261,7 @@ void find_strongly_connected(const SparseMatrix* pA, std::vector<std::vector<int
 		{
 			col = r.row[j].first;
 			val = fabs(r.row[j].second);
-			if(row != col && val > theta * rowmax)	sci.push_back(col);
+			if(val > theta * rowmax)	sci.push_back(col);
 		}
 		// sort to use binary search over strong connections later
 		if(!sci.empty())	std::sort(sci.begin(), sci.end());
@@ -675,7 +592,6 @@ void AMG_Preconditioner::V_cycle(int m, std::vector<double>& x, const std::vecto
 {
 	const SparseMatrix* pA = Am[m];
 	bool stop = m >= amg_levels-2;
-	int niters_smooth = 2;
 	// pre-smoothing
 	smoothing(m,x,b, niters_smooth);
 	// compute residual r = b - Ax
@@ -711,7 +627,6 @@ void AMG_Preconditioner::W_cycle(int m, std::vector<double>& x, const std::vecto
 {
 	const SparseMatrix* pA = Am[m];
 	bool stop = m >= amg_levels-2;
-	int niters_smooth = 2;
 	// pre-smoothing
 	smoothing(m,x,b, niters_smooth);
 	// compute residual r = b - Ax

@@ -29,7 +29,7 @@ public:
 	Method()
 	{
 		// common default parameters goes here
-		parameters.SetIntegerParameter("maximum_iterations", 2500);
+		parameters.SetIntegerParameter("maximum_iterations", 1000);
 		parameters.SetRealParameter("relative_tolerance", 1.0e-8);
 		parameters.SetRealParameter("absolute_tolerance", 1.0e-12);
 	}
@@ -61,8 +61,13 @@ public:
 	PreconditionedMethod() : preconditioner(NULL)
 	{
 		// default preconditioner parameters goes here
+		// ILUC
 		parameters.SetRealParameter("drop_tolerance", 1.0e-4);
 		parameters.SetIntegerParameter("level_of_fill", 80);
+		// AMG
+		parameters.SetIntegerParameter("amg_levels", 2);
+		parameters.SetIntegerParameter("niters_smooth", 2);
+		parameters.SetIntegerParameter("w_cycle", 0);
 	}
 	PreconditionedMethod(const PreconditionedMethod& other)
 	{
@@ -135,6 +140,7 @@ public:
 void jacobi(const SparseMatrix* pA, std::vector<double>& x, const std::vector<double>& b);
 void gauss_seidel(const SparseMatrix* pA, std::vector<double>& x, const std::vector<double>& b);
 void LU_solve(const SparseMatrix& L, const SparseMatrix& U, const std::vector<double>& b, std::vector<double>& x);
+void LU_in_place_solve(SparseMatrix* pA, const std::vector<double>& b, std::vector<double>& x);
 
 
 #endif // METHOD_H

@@ -20,6 +20,12 @@ bool MTXMatrixWriter::WriteMatrix(const SparseMatrix& mat, const char * filename
 	std::ofstream ofs(filename);
 	ofs << "%% MTX Format matrix" << std::endl;
 	ofs << "%% Linear System Practice!" << std::endl;
+	int nnz = 0;
+	for(int i = 0; i < mat.Size(); i++)
+	{
+		nnz += mat[i].row.size();
+	}
+	ofs << mat.Size() << " " << mat.Size() << " " << nnz << std::endl;
 	for(int i = 0; i < mat.Size(); i++)
 	{
 		const sparse_row& r = mat[i];

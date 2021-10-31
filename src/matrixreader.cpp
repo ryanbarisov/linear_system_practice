@@ -1,5 +1,6 @@
 #include <matrix.h>
 #include <matrixreader.h>
+#include <matrixwriter.h>
 
 SparseMatrix* ReadMatrix(MatrixFormat fmt, const char * filename)
 {
@@ -46,8 +47,12 @@ SparseMatrix* MTXMatrixReader::ReadMatrix(const char * filename)
 				else
 				{
 					ss >> i >> j >> aij;
-					(*A)[i-1].add_element(j-1, aij);
-					k++;
+					//(*A)[i-1].add_element(j-1, aij); k++;
+					{
+						// for symmetric matrices from Florida collection
+						(*A)[i-1].add_element(j-1, aij); k++;
+						(*A)[j-1].add_element(i-1, aij); k++;
+					}
 				}
 				if(ss.fail())
 				{
@@ -58,6 +63,7 @@ SparseMatrix* MTXMatrixReader::ReadMatrix(const char * filename)
 					read_first_line = true;
 			}
 		}
+		std::cout << "Matrix " << filename << ": " << rows << " X " << cols << ", nnz=" << k << std::endl;
 	}
 	ifs.close();
 
@@ -95,7 +101,7 @@ SparseMatrix* CSRMatrixReader::ReadMatrix(const char * filename)
 		for(int r = 0; r < rows; r++)
 		{
 			sparse_row& row = (*A)[r];
-			for(int k = ia[r]; k < ia[r+1]; k++)
+			for(int k = ia[r]-1; k < ia[r+1]-1; k++)
 				row.add_element(ja[k]-1, a[k]);
 		}
 

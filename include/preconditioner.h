@@ -29,6 +29,19 @@ public:
 	virtual bool PreconditionedSolve(const std::vector<double>& rhs, std::vector<double>& x) = 0;
 };
 
+class ILU0_Preconditioner : public Preconditioner
+{
+private:
+	SparseMatrix * LU;
+public:
+	ILU0_Preconditioner(const SparseMatrix* _pA, SolverParameters parameters);
+	~ILU0_Preconditioner();
+
+	bool SetupPreconditioner() override;
+	bool PreconditionedSolve(const std::vector<double>& rhs, std::vector<double>& x) override;
+
+	static void construct_inverse(SparseMatrix* pA);
+};
 
 class ILUC_Preconditioner : public Preconditioner
 {
@@ -51,6 +64,8 @@ class AMG_Preconditioner : public Preconditioner
 	typedef std::map<int,sparse_row> interpolation_type;
 private:
 	int amg_levels = 2;
+	int niters_smooth = 2;
+	int w_cycle = 0;
 
 	std::vector<int> Nm;						// coarse system dimensions for 1 <= m <= q = amg_levels-1
 	std::vector< std::vector<int> > Cm;			// index set for coarse grids, 1 <= m <= q = amg_levels-1
@@ -90,6 +105,10 @@ public:
 
 static Preconditioner * CreatePreconditioner(PreconditionerType ptype, const SparseMatrix* pA, const SolverParameters& parameters)
 {
+	if(ptype == PreconditionerType::ILU0)
+	{
+		return new ILU0_Preconditioner(pA, parameters);
+	}
 	if(ptype == PreconditionerType::ILUC)
 	{
 		return new ILUC_Preconditioner(pA, parameters);

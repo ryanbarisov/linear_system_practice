@@ -201,3 +201,46 @@ void LU_solve(const SparseMatrix& L, const SparseMatrix& U, const std::vector<do
 		x[k] /= r.get_element(k);
 	}
 }
+
+
+void LU_in_place_solve(SparseMatrix* pA, const std::vector<double>& b, std::vector<double>& x)	
+{
+	int n = pA->Size();
+
+	// solve Lx = b
+	for(int i = 0; i < n; i++)	// loop over rows
+	{
+		const sparse_row& r = (*pA)[i];
+		x[i] = b[i];
+		for(int kk = 0; kk < r.row.size(); kk++)
+		{
+			int row = r.row[kk].first;
+			if(row < i)
+				x[i] -= r.row[kk].second*x[row];
+		}
+	}
+	// solve Uy = x
+	for(int i = n-1; i >= 0; i--)	// loop over rows
+	{
+		double akk = 0.0;
+		const sparse_row& r = (*pA)[i];
+		for(int kk = 0; kk < r.row.size(); kk++)
+		{
+			int row = r.row[kk].first;
+			if(row == i)
+			{
+				akk = r.row[kk].second;
+				break;
+			}
+		}
+		assert(akk != 0.0);
+		x[i] = b[i];
+		for(int kk = 0; kk < r.row.size(); kk++)
+		{
+			int row = r.row[kk].first;
+			if(row > i)
+				x[i] -= r.row[kk].second*x[row];
+		}
+		x[i] /= akk;
+	}
+}
