@@ -25,13 +25,13 @@ bool ILUC_Preconditioner::SetupPreconditioner()
 	U = new SparseMatrix(n);
 
 	// prepare rows and columns of A into separate structures
-	sparse_row * Arows = new sparse_row[n];
+	// sparse_row * Arows = new sparse_row[n];
 	sparse_row * Acols = new sparse_row[n];
 	entry e;
 	for(int k = 0; k < pA->Size(); k++)
 	{
 		const sparse_row& r = (*pA)[k];
-		Arows[k] = r;
+		// Arows[k] = r;
 		for(int j = 0; j < r.row.size(); j++)
 		{
 			int col = r.row[j].first;
@@ -55,7 +55,7 @@ bool ILUC_Preconditioner::SetupPreconditioner()
 	sparse_row z, w;
 	for(int k = 0; k < n; k++)
 	{
-		z.assign(Arows[k],k,n);
+		z.assign((*pA)[k],k,n);
 		for(std::list<entry>::const_iterator it = Llist[k].begin(); it != Llist[k].end(); ++it)
 			z.plus(-it->second, (*U)[it->first],k,n);
 		w.assign(Acols[k],k+1,n);
@@ -66,7 +66,7 @@ bool ILUC_Preconditioner::SetupPreconditioner()
 		w *= 1.0/ukk;
 		// TODO dropping rule for z and w
 
-		// drop z
+		// drop row z
 		for(int kk = 0; kk < lfil; kk++)
 			big_elems[kk] = 0.0;
 		for(sparse_type::iterator it = z.row.begin(); it != z.row.end(); )
@@ -100,7 +100,7 @@ bool ILUC_Preconditioner::SetupPreconditioner()
 				it = z.row.erase(it);
 			else it++;
 		}
-		// drop w
+		// drop column w
 		for(int kk = 0; kk < lfil; kk++)
 			big_elems[kk] = 0.0;
 		for(sparse_type::iterator it = w.row.begin(); it != w.row.end(); )
@@ -132,7 +132,15 @@ bool ILUC_Preconditioner::SetupPreconditioner()
 
 		// update factors
 		U->set_vector(k,z,k,n);
-		L->set_vector(k,w,k+1,n);
+		//L->set_vector(k,w,k+1,n);
+
+		for(sparse_type::iterator it = w.row.begin(); it != w.row.end(); ++it)
+		{
+			int row = it->first;
+			double val = it->second;
+			L->add_element(row,k,val);
+		}
+
 		L->add_element(k,k,1.0);
 
 		// update indices
@@ -168,7 +176,7 @@ bool ILUC_Preconditioner::SetupPreconditioner()
 	delete [] Lfirst;
 	delete [] Llist;
 	delete [] Ulist;
-	delete [] Arows;
+	// delete [] Arows;
 	delete [] Acols;
 
 	return true;

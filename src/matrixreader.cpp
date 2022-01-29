@@ -108,7 +108,7 @@ SparseMatrix* MTXMatrixReader::ReadMatrix(const char * filename)
 				else
 				{
 					ss >> i >> j >> aij;
-					//(*A)[i-1].add_element(j-1, aij); k++;
+					// (*A)[i-1].add_element(j-1, aij); k++;
 					{
 						// for symmetric matrices from Florida collection
 						(*A)[i-1].add_element(j-1, aij); k++;
