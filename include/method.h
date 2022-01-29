@@ -137,10 +137,20 @@ public:
 };
 
 
-void jacobi(const SparseMatrix* pA, std::vector<double>& x, const std::vector<double>& b);
-void gauss_seidel(const SparseMatrix* pA, std::vector<double>& x, const std::vector<double>& b);
+void jacobi_solve(const SparseMatrix* pA, std::vector<double>& x, const std::vector<double>& b);
+void gs_solve(const SparseMatrix* pA, std::vector<double>& x, const std::vector<double>& b);
+//void symm_gs_solve(const SparseMatrix* pA, std::vector<double>& x, const std::vector<double>& b);
+
+
 void LU_solve(const SparseMatrix& L, const SparseMatrix& U, const std::vector<double>& b, std::vector<double>& x);
 void LU_in_place_solve(SparseMatrix* pA, const std::vector<double>& b, std::vector<double>& x);
+
+void jacobi_precondition(const SparseMatrix* pA, std::vector<double>& x, const std::vector<double>& b);
+void gs_precondition(const SparseMatrix* pA, std::vector<double>& x, const std::vector<double>& b);
+void symm_gs_precondition(const SparseMatrix* pA, std::vector<double>& x, const std::vector<double>& b);
+void gs_precondition_backward(const SparseMatrix* pA, std::vector<double>& x, const std::vector<double>& b);
+
+void sor_precondition(const SparseMatrix* pA, std::vector<double>& x, const std::vector<double>& b);
 
 
 #endif // METHOD_H

@@ -9,7 +9,7 @@
 class SolverParameters
 {
 private:
-	static const bool debug = true;
+	static const bool debug = false;
 	std::map<std::string, double>	real_parameters;
 	std::map<std::string, int>		integer_parameters;
 public:

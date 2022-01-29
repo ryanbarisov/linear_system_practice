@@ -11,7 +11,9 @@ enum class PreconditionerType
 	NONE,
 	ILU0,
 	ILUC,
-	AMG
+	AMG,
+	JACOBI,
+	GAUSS_SEIDEL
 };
 
 class Preconditioner
@@ -59,6 +61,9 @@ public:
 	bool PreconditionedSolve(const std::vector<double>& rhs, std::vector<double>& x) override;
 };
 
+
+#if !defined(RECURSIVE_AMG)
+
 class AMG_Preconditioner : public Preconditioner
 {
 	typedef std::map<int,sparse_row> interpolation_type;
@@ -86,18 +91,50 @@ private:
 	void construct_coarse_system(int m_from);
 	void construct_CF_partition(int m_from);
 
-	bool SetupAMG(int lvl);
+	bool SetupAMG(int lvl = 0);
 
 	void V_cycle(int m, std::vector<double>& x, const std::vector<double>& b);
 	void W_cycle(int m, std::vector<double>& x, const std::vector<double>& b);
 
 public:
 	AMG_Preconditioner(const SparseMatrix* _pA, SolverParameters parameters);
-	AMG_Preconditioner(const AMG_Preconditioner& other);
-	AMG_Preconditioner& operator=(const AMG_Preconditioner& other);
 	~AMG_Preconditioner();
 
 	bool SetupPreconditioner() override;
+	bool PreconditionedSolve(const std::vector<double>& rhs, std::vector<double>& x) override;
+};
+
+#else
+
+class AMG_Preconditioner : public Preconditioner
+{
+	Preconditioner* Next = nullptr;
+public:
+	AMG_Preconditioner(const SparseMatrix* _pA, SolverParameters parameters);
+	AMG_Preconditioner(const AMG_Preconditioner* prev, int amg_levels, int depth);
+	~AMG_Preconditioner();
+
+	bool SetupPreconditioner() override;
+	bool PreconditionedSolve(const std::vector<double>& rhs, std::vector<double>& x) override;
+};
+
+#endif
+
+class JACOBI_Preconditioner : public Preconditioner
+{
+public:
+	JACOBI_Preconditioner(const SparseMatrix* _pA, SolverParameters parameters) : Preconditioner(PreconditionerType::JACOBI, _pA) {}
+
+	bool SetupPreconditioner() {return true;}
+	bool PreconditionedSolve(const std::vector<double>& rhs, std::vector<double>& x) override;
+};
+
+class GS_Preconditioner : public Preconditioner
+{
+public:
+	GS_Preconditioner(const SparseMatrix* _pA, SolverParameters parameters) : Preconditioner(PreconditionerType::GAUSS_SEIDEL, _pA) {}
+
+	bool SetupPreconditioner() {return true;}
 	bool PreconditionedSolve(const std::vector<double>& rhs, std::vector<double>& x) override;
 };
 
@@ -116,6 +153,14 @@ static Preconditioner * CreatePreconditioner(PreconditionerType ptype, const Spa
 	else if(ptype == PreconditionerType::AMG)
 	{
 		return new AMG_Preconditioner(pA, parameters);
+	}
+	else if(ptype == PreconditionerType::JACOBI)
+	{
+		return new JACOBI_Preconditioner(pA, parameters);
+	}
+	else if(ptype == PreconditionerType::GAUSS_SEIDEL)
+	{
+		return new GS_Preconditioner(pA, parameters);
 	}
 	else
 	{

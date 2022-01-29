@@ -1,5 +1,6 @@
 #include <matrix.h>
 #include <matrixreader.h>
+#include <matrixwriter.h>
 #include <method.h>
 #include <cstring>
 #include <rapidjson/rapidjson.h>
@@ -30,6 +31,10 @@ PreconditionerType GetPreconditionerType(std::string name)
 		return PreconditionerType::ILUC;
 	else if(name == "ILU0")
 		return PreconditionerType::ILU0;
+	else if(name == "JAC")
+		return PreconditionerType::JACOBI;
+	else if(name == "GS")
+		return PreconditionerType::GAUSS_SEIDEL;
 	else
 	{
 		std::cerr << "Failed to get preconditioner type from string: " << name << std::endl;
@@ -55,74 +60,144 @@ static rapidjson::Document parseJsonFromFile(std::string filename)
 }
 
 
+SparseMatrix * HilbertMatrix(int n)
+{
+	SparseMatrix * A = new SparseMatrix(n);
+	for(int i = 0; i < n; i++)
+	{
+		sparse_row& r = (*A)[i];
+		for(int j = 0; j < n; j++)
+		{
+			r.add_element(j, 1.0/(i+j+1+1));
+		}
+	}
+
+	return A;
+}
+
+SparseMatrix * LaplaceMatrix(int n)
+{
+	SparseMatrix * A = new SparseMatrix(n);
+	for(int i = 0; i < n; i++)
+	{
+		sparse_row& r = (*A)[i];
+		for(int j = 0; j < 3; j++)
+		{
+			if(i-1 >= 0) r.add_element(i-1, -1.0);
+			r.add_element(i, 2.0);
+			if(i+1 < n)  r.add_element(i+1, -1.0);
+		}
+	}
+
+	return A;
+}
+
+bool read_vector(const rapidjson::Document& options, std::string str, std::vector<double>& v, int n)
+{
+	bool read_v = false;
+	if(options.HasMember(str.c_str()))
+	{
+		std::string rhs_filename = options[str.c_str()].GetString();
+		std::cout << "Try to read RHS from MTX file: " << rhs_filename << std::endl;
+		read_v = read_rhs_from_mtx(v, rhs_filename.c_str()); 
+		std::cout << "Finished " << (read_v ? "successfully " : "with error.") << std::endl;
+	}
+	if(!read_v)
+	{
+		std::cout << "Provide analytical vector" << std::endl;
+		double pi = 3.1415926535;
+		for(int i = 0; i < n; i++) v[i] = sin(pi / n * i)/n * (1.0*rand()/RAND_MAX);
+	}
+	return read_v;
+}
+
+void print_norms(const std::vector<double>& x1, const std::vector<double>& x2)
+{
+	int n1 = x1.size(), n2 = x2.size();
+	assert(n1 == n2);
+	int n = std::min(n1, n2);
+	double l1 = 0, l2 = 0, linf = 0;
+	for(int i = 0; i < n; i++)
+	{
+		double diff = fabs(x1[i]-x2[i]);
+		l1 += diff;
+		l2 += diff*diff;
+		linf = std::max(diff, linf);
+	}
+	l1 /= n;
+	l2 = sqrt(l2)/n;
+	std::cout << "Norms: L2 " << l2 << "; Linf " << linf << "; L1 " << l1 << std::endl;
+}
+
 
 
 int main(int argc, char ** argv)
 {
 	if(argc < 2)
 	{
-		//std::cout << "Usage: ./main <matrix.mtx> <preconditioner_type=AMG|ILUC> [rhs.mtx]" << std::endl;
 		std::cout << "Usage: ./main <options.json>" << std::endl;
+		return 0;
 	}
-	else if(true)
+	
+	std::string filename(argv[1]);
+
+	rapidjson::Document options = parseJsonFromFile(filename);
+	if(options.HasParseError())
 	{
-		std::string filename(argv[1]);
-
-		rapidjson::Document options = parseJsonFromFile(filename);
-		if(options.HasParseError())
-		{
-			std::cerr << "Error while opening options file: " << filename 
-				<< ", error code (see rapidjson/error/error.h): " << options.GetParseError() << std::endl;
-			return 1;
-		}
-		assert(options.HasMember("matrix"));
-
+		std::cerr << "Error while opening options file: " << filename 
+			<< ", error code (see rapidjson/error/error.h): " << options.GetParseError() << std::endl;
+		return 1;
+	}
+	SparseMatrix * A;
+	if(options.HasMember("matrix"))
+	{
 		std::string matrix_filename = options["matrix"].GetString();
 		double t_read = Timer();
-		SparseMatrix * A = ReadMatrix(GetMatrixFormat(matrix_filename), matrix_filename.c_str());
+		A = ReadMatrix(GetMatrixFormat(matrix_filename), matrix_filename.c_str());
 		std::cout << "Time to read matrix " << matrix_filename << " " << (Timer() - t_read) << std::endl;
+	}
+	else
+	{
+		int n = 40;
+		std::cerr << "No matrix provided, use Laplace matrix of size " << n << std::endl;
+		A = LaplaceMatrix(n);
+		//MTXMatrixWriter::WriteMatrix(*A, "laplace.mtx");
+	}
+	
 
-		int n = A->Size();
-		std::vector<double> x,b;
-		x.resize(n);
-		b.resize(n);
-		std::fill(x.begin(), x.end(), 0.0);
-		if(options.HasMember("rhs"))
-		{
-			std::string rhs_filename = options["rhs"].GetString();
-			std::cout << "Try to read RHS from MTX file: " << rhs_filename << std::endl;
-			std::cout << "Finished " << (read_rhs_from_mtx(b, rhs_filename.c_str()) ? "successfully " : "with error.") << std::endl;
-		}
-		else
-		{
-			for(int i = 0; i < n; i++) b[i] = i;
-		}
+	int n = A->Size();
+	std::vector<double> x(n,0.0),b(n);
+	std::vector<double> x_file(n);
+	read_vector(options, "rhs", b, n);
+	bool file_solution = read_vector(options, "sol", x_file, n);
 
-		PreconditionerType ptype = PreconditionerType::NONE;
-		if(options.HasMember("preconditioner"))
-		{
-			ptype = GetPreconditionerType(options["preconditioner"].GetString());
-		}
-		bool preconditioned = ptype != PreconditionerType::NONE;
-		if(!preconditioned)	std::cout << "Use CG without preconditioning" << std::endl;
+	PreconditionerType ptype = PreconditionerType::NONE;
+	if(options.HasMember("preconditioner"))
+	{
+		ptype = GetPreconditionerType(options["preconditioner"].GetString());
+		std::cout << "Use preconditioner " << options["preconditioner"].GetString() << std::endl;
+	}
+	bool preconditioned = ptype != PreconditionerType::NONE;
+	if(!preconditioned)	std::cout << "Use CG without preconditioning" << std::endl;
 
-		Method * method;
-		if(preconditioned) 
-			method = new PCG_method();
-		else
-			method = new CG_method();
+	Method * method;
+	if(preconditioned) method = new PCG_method();
+	else method = new CG_method();
 
-		if(options.HasMember("parameters"))
+	if(options.HasMember("parameters"))
+	{
+		const rapidjson::Value& parameters = options["parameters"];
+		if(parameters.HasMember("maximum_iterations"))
+			method->SetIntegerParameter("maximum_iterations", parameters["maximum_iterations"].GetInt());
+		if(ptype == PreconditionerType::ILUC)
 		{
-			const rapidjson::Value& parameters = options["parameters"];
-			if(parameters.HasMember("maximum_iterations"))
-				method->SetIntegerParameter("maximum_iterations", parameters["maximum_iterations"].GetInt());
-			// ILUC
 			if(parameters.HasMember("level_of_fill"))
 				method->SetIntegerParameter("level_of_fill", parameters["level_of_fill"].GetInt());
 			if(parameters.HasMember("drop_tolerance"))
 				method->SetRealParameter("drop_tolerance", parameters["drop_tolerance"].GetDouble());
-			// AMG
+		}
+		if(ptype == PreconditionerType::AMG)
+		{
 			if(parameters.HasMember("amg_levels"))
 				method->SetIntegerParameter("amg_levels", parameters["amg_levels"].GetInt());
 			if(parameters.HasMember("niters_smooth"))
@@ -130,90 +205,26 @@ int main(int argc, char ** argv)
 			if(parameters.HasMember("w_cycle"))
 				method->SetIntegerParameter("w_cycle", parameters["w_cycle"].GetInt());
 		}
-
-		double t_precond = Timer(), t_solve;
-		bool precond = method->Setup(A, ptype);
-		t_precond = Timer() - t_precond;
-
-		if(precond)
-		{
-			std::cout << "Preconditioner time: " << t_precond << std::endl;
-			t_solve = Timer();
-			bool solve = method->Solve(b,x);
-			t_solve = Timer() - t_solve;
-			if(solve)
-			{
-				std::cout << "Solve time: " << t_solve << std::endl;
-				SaveVector(x, "solution.txt");
-			}
-		}
-
-		delete method;
-		delete A;
 	}
-	else
+
+	double t_precond = Timer(), t_solve;
+	bool precond = method->Setup(A, ptype);
+	t_precond = Timer() - t_precond;
+
+	if(precond)
 	{
-		std::string filename(argv[1]);
-		double t_read = Timer();
-		SparseMatrix * A = ReadMatrix(GetMatrixFormat(filename), filename.c_str());
-		std::cout << "Time to read matrix " << argv[1] << " " << (Timer() - t_read) << std::endl;
-		int n = A->Size();
-		std::vector<double> x,b;
-		x.resize(n);
-		b.resize(n);
-		for(int i = 0; i < n; i++)
+		std::cout << "Preconditioner time: " << t_precond << std::endl;
+		t_solve = Timer();
+		bool solve = method->Solve(b,x);
+		t_solve = Timer() - t_solve;
+		if(solve)
 		{
-			b[i] = i;
-			x[i] = 0.0;
+			std::cout << "Solve time: " << t_solve << std::endl;
+			SaveVector(x, "solution.txt");
+			if(file_solution) print_norms(x, x_file);
 		}
-		if(argc > 3)
-		{
-			std::cout << "Try to read RHS from MTX file: " << argv[3] << std::endl;
-			std::cout << "Finished " << (read_rhs_from_mtx(b, argv[3]) ? "successfully " : "with error.") << std::endl;
-		}
-
-		PreconditionerType ptype;
-		if(argc > 2)
-		{
-			std::cout << argv[2] << " is AMG? " << !strcmp(argv[2], "AMG") << " is ILUC? " << !strcmp(argv[2], "ILUC") << std::endl;
-			ptype = GetPreconditionerType(std::string(argv[2]));
-		}
-		bool preconditioned = ptype != PreconditionerType::NONE;
-		if(!preconditioned)	std::cout << "Use CG without preconditioning" << std::endl;
-
-		Method * method;
-		if(preconditioned) 
-			method = new PCG_method();
-		else
-		 	method = new CG_method();
-		method->SetIntegerParameter("maximum_iterations", 100);
-		method->SetIntegerParameter("amg_levels", 3);
-		method->SetIntegerParameter("niters_smooth", 5);
-		method->SetIntegerParameter("w_cycle", 0);
-		method->SetRealParameter("drop_tolerance", 1.0e-4);
-		method->SetIntegerParameter("level_of_fill", 80);
-
-		double t_precond = Timer(), t_solve;
-		bool precond = method->Setup(A, ptype);
-		t_precond = Timer() - t_precond;
-
-		if(precond)
-		{
-			std::cout << "Preconditioner time: " << t_precond << std::endl;
-			t_solve = Timer();
-			bool solve = method->Solve(b,x);
-			t_solve = Timer() - t_solve;
-			if(solve)
-			{
-				std::cout << "Solve time: " << t_solve << std::endl;
-				SaveVector(x, "solution.txt");
-			}
-		}
-
-		delete method;
-		delete A;
 	}
 
-	
-	return 0;
+	delete method;
+	delete A;
 }

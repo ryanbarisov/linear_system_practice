@@ -222,4 +222,8 @@ void Multiply(double a, const std::vector<double>& x, double b, std::vector<doub
 bool SaveVector(const std::vector<double>& x, const char * filename);
 
 
+int check_nans(const sparse_row& r);
+int check_nans(const SparseMatrix* mat);
+
+
 #endif //MATRIX_H

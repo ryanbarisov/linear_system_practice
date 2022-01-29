@@ -104,3 +104,35 @@ bool SaveVector(const std::vector<double>& x, const char * filename)
 
 	return true;
 }
+
+
+int check_nans(const sparse_row& r)
+{
+	for(int k = 0; k < r.row.size(); k++)
+	{
+		int col = r.row[k].first;
+		double val = r.row[k].second;
+		if(std::isnan(val) || std::isinf(val))
+		{
+			std::cerr << "col " << col << (std::isnan(val) ? " nan " : " inf ") << std::endl;
+			return col+1;
+		}
+	}
+	return 0;
+}
+
+int check_nans(const SparseMatrix* mat)
+{
+	int last_found = -1;
+	int n = mat->Size();
+	for(int i = 0; i < n; i++)
+	{
+		const sparse_row& r = (*mat)[i];
+		if(check_nans(r))
+		{
+			std::cerr << "(check_nans row " << i << ")." << std::endl;
+			last_found = i;
+		}
+	}
+	return last_found;
+}

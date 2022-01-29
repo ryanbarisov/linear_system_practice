@@ -1,6 +1,8 @@
 #include <matrix.h>
 #include <matrixreader.h>
 #include <matrixwriter.h>
+#include <algorithm>
+#include <cctype>
 
 SparseMatrix* ReadMatrix(MatrixFormat fmt, const char * filename)
 {
@@ -13,6 +15,50 @@ SparseMatrix* ReadMatrix(MatrixFormat fmt, const char * filename)
 		std::cerr << "Matrix format is not supported." << std::endl;
 		return nullptr;
 	}
+}
+
+static bool my_isspace(char ch)
+{
+    return std::isspace(static_cast<unsigned char>(ch));
+}
+
+// split string on words using space as separator
+// return amount of words
+static int parse_string_numbers(std::string str)
+{
+	// doesn't work correctly if words separated by several spaces
+	//return std::count(str.begin(), str.end(), ' '); 
+	// naive approach
+	std::string::iterator beg = str.begin(), end = str.end();
+	std::string::iterator it;
+	int count = 0;
+	bool word = false, space = false;
+	// every non-space character is a word character 
+	for(it = beg; ; ++it)
+	{
+		if(it == end)
+		{
+			if(word) count++;
+			break;
+		}
+		space = my_isspace(*it);
+		// space finished on previous symbol
+		if(!space && !word)
+		{
+			word = true;
+		}
+		// word finished on previous symbol, increment word counter
+		else if(space && word)
+		{
+			word = false;
+			count++;
+		}
+
+		// test redundancy
+		if(space && word)
+			std::cout << *it << std::endl;
+	}
+	return count;
 }
 
 SparseMatrix* MTXMatrixReader::ReadMatrix(const char * filename)
@@ -41,7 +87,22 @@ SparseMatrix* MTXMatrixReader::ReadMatrix(const char * filename)
 				std::stringstream ss(s);
 				if(!read_first_line)
 				{
-					ss >> rows >> cols >> nnz;
+					std::string line = ss.str();
+					int nums = parse_string_numbers(line);
+					if(nums == 3)
+						ss >> rows >> cols >> nnz;
+					else if(nums == 2)
+					{
+						ss >> rows >> cols;
+						nnz = rows;
+					}
+					else if(nums == 1)
+					{
+						ss >> rows;
+						cols = 1;
+						nnz = rows;
+					}
+
 					A = new SparseMatrix(rows);
 				}
 				else
@@ -64,6 +125,7 @@ SparseMatrix* MTXMatrixReader::ReadMatrix(const char * filename)
 			}
 		}
 		std::cout << "Matrix " << filename << ": " << rows << " X " << cols << ", nnz=" << k << std::endl;
+		//MTXMatrixWriter::WriteMatrix(*A, "save.mtx");
 	}
 	ifs.close();
 
@@ -141,7 +203,15 @@ bool read_rhs_from_mtx(std::vector<double>& rhs, const char* filename)
 				std::stringstream ss(s);
 				if(!flag)
 				{
-					ss >> M >> N;
+					int nums = parse_string_numbers(s);
+					if(nums == 2)
+						ss >> M >> N;
+					else if(nums == 1)
+					{
+						ss >> M;
+						N = 1;
+					}
+					
 					assert(N == 1);
 				}
 				else
