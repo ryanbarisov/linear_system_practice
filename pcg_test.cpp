@@ -42,6 +42,8 @@ PreconditionerType GetPreconditionerType(std::string name)
 	}
 }
 
+
+
 static rapidjson::Document parseJsonFromFile(std::string filename)
 {
 	rapidjson::Document options;
@@ -181,8 +183,21 @@ int main(int argc, char ** argv)
 	if(!preconditioned)	std::cout << "Use CG without preconditioning" << std::endl;
 
 	Method * method;
-	if(preconditioned) method = new PCG_method();
-	else method = new CG_method();
+	if(options.HasMember("solver"))
+	{
+		std::string solver_type = options["solver"].GetString();
+		if(solver_type == "CG")
+		{
+			if(preconditioned) method = new PCG_method();
+			else method = new CG_method();
+		}
+		else
+		{
+			if(preconditioned) method = new PBICGStab_method();
+			else method = new BICGStab_method();
+		}
+	}
+	
 
 	if(options.HasMember("parameters"))
 	{

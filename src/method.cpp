@@ -99,59 +99,168 @@ bool PCG_method::Solve(const std::vector<double>& b, std::vector<double>& x)
 	}
 }
 
+bool BICGStab_method::Solve(const std::vector<double>& b, std::vector<double>& x)
+{
+	int n = pA->Size();
+
+	std::vector<double> p(n), r = b, r0, r0_hat, nu0(n,0.0), p0(n, 0.0), y(n, 0.0), h(n), s(n), z(n), t(n);
+	pA->Multiply(-1,x,1,r); // r = b-Ax
+	r0_hat = r;
+
+	double rho, w, beta;
+	double rho0 = 1.0, alpha = 1.0, w0 = 1.0;
+
+	double resid0 = FrobeniusNorm(r), resid;
+	if(resid0 < abstol)
+	{
+		std::cout << "Initial solution satisfies tolerance" << std::endl;
+		return true;
+	}
+
+	int iter = 0;
+	do
+	{
+		rho = DotProduct(r0_hat, r);
+		beta = rho/rho0 * alpha/w0;
+		rho0 = rho;
+		for(int i = 0; i < n; i++) p[i] = r[i] + beta*(p0[i] - w0*nu0[i]), p0[i] = p[i];
+		pA->Multiply(1.0,p,0.0,nu0); // nu0 <-- Ap
+		alpha = rho / DotProduct(r0_hat, nu0);
+		h = x;
+		Multiply(alpha,p,1.0,h); // h = x + alpha*p
+		s = r;
+		Multiply(-alpha,nu0,1.0,s); // s = r - alpha*nu0
+		pA->Multiply(1.0,s,0.0,t); // t <-- As
+		w0 = w = DotProduct(t,s)/DotProduct(t,t);
+		x = h;
+		Multiply(w,s,1.0,x);
+		r = s;
+		Multiply(-w,t,1.0,r);
+
+		
+
+		resid = FrobeniusNorm(r);
+		iter++;
+
+		// if(iter % 10 == 0)
+		{
+			std::cout << "iter\t" << std::setw(4) << iter << "\trel_err\t" << std::setw(10) << resid/resid0 << "\t\t|\t" << std::setw(10) << reltol << "\n";
+			std::cout.flush();
+			// std::cin.ignore();
+		}
+		
+	} while(iter < maxiters && resid > reltol * resid0);
+	if(iter == maxiters && resid > reltol * resid0)
+	{
+		std::cout << "\nMaximum iterations reached: " << maxiters << " converged to " << resid/resid0 << " relative tolerance " << std::endl;
+		return false;
+	}
+	else
+	{
+		std::cout << "Iterations: " << iter << " converged to " << resid/resid0 << " relative tolerance " << std::endl;
+		return true;
+	}
+}
+
+bool PBICGStab_method::Solve(const std::vector<double>& b, std::vector<double>& x)
+{
+	int n = pA->Size();
+
+	std::vector<double> p(n), r = b, r0, r0_hat, nu0(n,0.0), p0(n, 0.0), y(n, 0.0), h(n), s(n), z(n), t(n);
+	pA->Multiply(-1,x,1,r); // r = b-Ax
+	r0_hat = r;
+
+	double rho, w, beta;
+	double rho0 = 1.0, alpha = 1.0, w0 = 1.0;
+
+	double resid0 = FrobeniusNorm(r), resid;
+	if(resid0 < abstol)
+	{
+		std::cout << "Initial solution satisfies tolerance" << std::endl;
+		return true;
+	}
+
+	int iter = 0;
+	do
+	{
+		rho = DotProduct(r0_hat, r);
+		beta = rho/rho0 * alpha/w0;
+		rho0 = rho;
+		for(int i = 0; i < n; i++) p[i] = r[i] + beta*(p0[i] - w0*nu0[i]), p0[i] = p[i];
+		preconditioner->PreconditionedSolve(p, y);
+		pA->Multiply(1.0,y,0.0,nu0); // nu0 <-- Ay
+		alpha = rho / DotProduct(r0_hat, nu0);
+		h = x;
+		Multiply(alpha,y,1.0,h); // h = x + alpha*y
+		s = r;
+		Multiply(-alpha,nu0,1.0,s); // s = r - alpha*nu0
+		preconditioner->PreconditionedSolve(s, z);
+		pA->Multiply(1.0,z,0.0,t); 
+		w0 = w = DotProduct(t,s)/DotProduct(t,t);
+		x = h;
+		Multiply(w,z,1.0,x);
+		r = s;
+		Multiply(-w,t,1.0,r);
+
+		
+
+		resid = FrobeniusNorm(r);
+		iter++;
+
+		// if(iter % 10 == 0)
+		{
+			std::cout << "iter\t" << std::setw(4) << iter << "\trel_err\t" << std::setw(10) << resid/resid0 << "\t\t|\t" << std::setw(10) << reltol << "\n";
+			std::cout.flush();
+			// std::cin.ignore();
+		}
+		
+	} while(iter < maxiters && resid > reltol * resid0);
+	if(iter == maxiters && resid > reltol * resid0)
+	{
+		std::cout << "\nMaximum iterations reached: " << maxiters << " converged to " << resid/resid0 << " relative tolerance " << std::endl;
+		return false;
+	}
+	else
+	{
+		std::cout << "Iterations: " << iter << " converged to " << resid/resid0 << " relative tolerance " << std::endl;
+		return true;
+	}
+}
+
 // SMOOTHING: x^new = G x^old + (I-G) A^{-1} b
 // x^new = (I-M^{-1}A) x^old + M^{-1} b
 // JACOBI: M = w*D
 void jacobi_precondition(const SparseMatrix* pA, std::vector<double>& x, const std::vector<double>& b)
 {
 	int n = pA->Size();
-	std::vector<double> x_old = x;
+	x.resize(n, 0.0);
+	std::vector<double> x_old(n);
 
-	x = b;
-	pA->Multiply(-1.0,x_old,1.0,x); // x <-- b-Ax
-
-	double omega = 1.0; // Jacobi relaxation parameter, which is used for the optimal smoothing (w = 4/5)
-	for(int i = 0; i < n; i++)
+	double omega = 0.8; // Jacobi relaxation parameter, which is used for the optimal smoothing (w = 4/5)
+	int maxiters = 1, iters = 0;
+	do
 	{
-		const sparse_row& r = (*pA)[i];
-		double aij, aii = 0.0;
-		for(int k = 0; k < r.row.size(); k++)
+		std::copy(x.begin(),x.end(),x_old.begin());
+		for(int i = 0; i < n; i++)
 		{
-			int j = r.row[k].first;
-			aij = r.row[k].second;
-			if(j == i)
+			const sparse_row& r = (*pA)[i];
+			double aij, aii = 0.0, s = 0.0;
+			for(int k = 0; k < r.row.size(); k++)
 			{
-				x[i] /= (aij * omega);
-				break;
+				int j = r.row[k].first;
+				aij = r.row[k].second;
+				if(j == i)
+					aii = aij;
+				else
+					s += aij * x_old[i];
 			}
+			x[i] = omega * (b[i] - s)/aii + (1.0-omega)*x[i];
 		}
-	}
-
-	for(int i = 0; i < n; i++)
-		x[i] = x_old[i] + x[i];
+		iters++;
+	} while(iters < maxiters);
+	
 }
 
-void jacobi_precondition1(const SparseMatrix* pA, std::vector<double>& x, const std::vector<double>& b)
-{
-	int n = pA->Size();
-	x = b;
-	for(int i = 0; i < n; i++)
-	{
-		const sparse_row& r = (*pA)[i];
-		double aij, aii = 0.0;
-		for(int k = 0; k < r.row.size(); k++)
-		{
-			int j = r.row[k].first;
-			aij = r.row[k].second;
-			if(j == i)
-			{
-				aii = aij; break;
-			}
-		}
-		assert(aii != 0.0);
-		x[i] /= aii;
-	}
-}
 
 // SMOOTHING: x^new = G x^old + (I-G) A^{-1} b
 // x^new = (I-M^{-1}A) x^old + M^{-1} b
@@ -159,50 +268,24 @@ void jacobi_precondition1(const SparseMatrix* pA, std::vector<double>& x, const 
 void gs_precondition(const SparseMatrix* pA, std::vector<double>& x, const std::vector<double>& b)
 {
 	int n = pA->Size();
-	std::vector<double> x_old = x;
-	x = b;
-	pA->Multiply(-1.0,x_old,1.0,x); // x <-- b - Ax
+	x.resize(n, 0.0);
+	double omega = 0.8; // Jacobi relaxation parameter, which is used for the optimal smoothing (w = 4/5)
+
 	for(int i = 0; i < n; i++)
 	{
 		const sparse_row& r = (*pA)[i];
-		double aij, aii = 0.0;
+		double aij, aii = 0.0, s = 0.0;
 		for(int k = 0; k < r.row.size(); k++)
 		{
 			int j = r.row[k].first;
 			aij = r.row[k].second;
 			if(j == i)
 				aii = aij;
-			else if (j < i)
-				x[i] -= aij * x[j];
+			else
+				s += aij * x[j];
 		}
 		assert(aii != 0.0);
-		x[i] /= aii;
-	}
-	for(int i = 0; i < n; i++)
-		x[i] = x_old[i] + x[i];
-}
-
-void gs_precondition1(const SparseMatrix* pA, std::vector<double>& x, const std::vector<double>& b)
-{
-	double w = 1.0;
-
-	int n = pA->Size();
-	x = b;
-	for(int i = 0; i < n; i++)
-	{
-		const sparse_row& r = (*pA)[i];
-		double aij, aii = 0.0;
-		for(int k = 0; k < r.row.size(); k++)
-		{
-			int j = r.row[k].first;
-			aij = r.row[k].second;
-			if(j == i)
-				aii = aij;
-			else if (j < i)
-				x[i] -= aij * x[j];
-		}
-		assert(aii != 0.0);
-		x[i] /= aii;
+		x[i] = omega*(b[i] - s)/aii + (1.0-omega)*x[i];
 	}
 }
 

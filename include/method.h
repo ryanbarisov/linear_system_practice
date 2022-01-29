@@ -136,6 +136,35 @@ public:
 	bool Solve(const std::vector<double>& b, std::vector<double>& x);
 };
 
+class BICGStab_method : public Method
+{
+public:
+	virtual bool Setup(const SparseMatrix* pA, PreconditionerType ptype = PreconditionerType::NONE)
+	{
+		return Method::Setup(pA);
+	}
+	bool Solve(const std::vector<double>& b, std::vector<double>& x);
+};
+
+class PBICGStab_method : public PreconditionedMethod
+{
+public:
+	PBICGStab_method() : PreconditionedMethod() {}
+	PBICGStab_method(const PBICGStab_method& other) : PreconditionedMethod(other) {}
+	PBICGStab_method& operator=(const PBICGStab_method& other) 
+	{
+		PreconditionedMethod::operator=(other);
+		return *this;
+	}
+	virtual ~PBICGStab_method()	{}
+	virtual bool Setup(const SparseMatrix* pA, PreconditionerType ptype = PreconditionerType::NONE)
+	{
+		return PreconditionedMethod::Setup(pA,ptype);
+	}
+
+	bool Solve(const std::vector<double>& b, std::vector<double>& x);
+};
+
 
 void jacobi_solve(const SparseMatrix* pA, std::vector<double>& x, const std::vector<double>& b);
 void gs_solve(const SparseMatrix* pA, std::vector<double>& x, const std::vector<double>& b);
