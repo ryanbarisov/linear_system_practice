@@ -49,6 +49,12 @@ struct sparse_row
 		return *this;
 	}
 
+	void push_element(int pos, double val, bool add = false)
+	{
+		entry e = std::make_pair(pos,val);
+		row.push_back(e);
+	}
+
 	void add_element(const entry& e, bool add = false)
 	{
 		if(row.empty())	
@@ -181,6 +187,7 @@ public:
 	~SparseMatrix() {}
 
 	void add_element(int row, int col, double val);
+	void push_element(int row, int col, double val);
 
 	// y = alpha*A*x + beta*y
 	void Multiply(double alpha, const std::vector<double>& x, double beta, std::vector<double>& y) const override;

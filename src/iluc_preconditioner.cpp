@@ -138,7 +138,8 @@ bool ILUC_Preconditioner::SetupPreconditioner()
 		{
 			int row = it->first;
 			double val = it->second;
-			L->add_element(row,k,val);
+			L->push_element(row,k,val);
+			//L->add_element(row,k,val);
 		}
 
 		L->add_element(k,k,1.0);

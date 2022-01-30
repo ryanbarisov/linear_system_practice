@@ -11,6 +11,14 @@ void SparseMatrix::add_element(int row, int col, double val)
 	v[row].add_element(e,true);
 }
 
+void SparseMatrix::push_element(int row, int col, double val)
+{
+	int N = v.size();
+	assert(row >= 0 && row < N);
+	v[row].push_element(col,val);
+}
+
+
 // y = alpha*A*x + beta*y
 void SparseMatrix::Multiply(double alpha, const std::vector<double>& x, double beta, std::vector<double>& y) const
 {
