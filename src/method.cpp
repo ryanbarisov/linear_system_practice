@@ -265,7 +265,7 @@ void jacobi_precondition(const SparseMatrix* pA, std::vector<double>& x, const s
 // SMOOTHING: x^new = G x^old + (I-G) A^{-1} b
 // x^new = (I-M^{-1}A) x^old + M^{-1} b
 // GAUSS-SEIDEL: M = D+L
-void gs_precondition(const SparseMatrix* pA, std::vector<double>& x, const std::vector<double>& b)
+void gs_precondition1(const SparseMatrix* pA, std::vector<double>& x, const std::vector<double>& b)
 {
 	int n = pA->Size();
 	x.resize(n, 0.0);
@@ -273,19 +273,67 @@ void gs_precondition(const SparseMatrix* pA, std::vector<double>& x, const std::
 
 	for(int i = 0; i < n; i++)
 	{
-		const sparse_row& r = (*pA)[i];
+		int id = i;//n-i-1;
+		const sparse_row& r = (*pA)[id];
 		double aij, aii = 0.0, s = 0.0;
 		for(int k = 0; k < r.row.size(); k++)
 		{
 			int j = r.row[k].first;
 			aij = r.row[k].second;
-			if(j == i)
+			if(j == id)
 				aii = aij;
-			else
+			else //if(j < id)
 				s += aij * x[j];
 		}
 		assert(aii != 0.0);
-		x[i] = omega*(b[i] - s)/aii + (1.0-omega)*x[i];
+		x[id] = omega*(b[id] - s)/aii + (1.0-omega)*x[id];
+	}
+}
+
+void gs_precondition(const SparseMatrix* pA, std::vector<double>& x, const std::vector<double>& b)
+{
+	int n = pA->Size();
+	std::vector<double> x0 = x;
+	x = b;
+	double omega = 0.8; // Jacobi relaxation parameter, which is used for the optimal smoothing (w = 4/5)
+
+
+	for(int i = 0; i < n; i++)
+	{
+		const sparse_row& r = (*pA)[i];
+		for(int k = 0; k < r.row.size(); k++)
+		{
+			int j = r.row[k].first;
+			double aij = r.row[k].second;
+			if(j > i)
+				x[i] -= aij*x0[j];
+		}
+	}
+
+	for(int i = 0; i < n; i++)
+	{
+		int id = i;//n-i-1;
+		const sparse_row& r = (*pA)[id];
+		double aij, aii = 0.0, s = 0.0;
+		for(int k = 0; k < r.row.size(); k++)
+		{
+			int j = r.row[k].first;
+			aij = r.row[k].second;
+			if(j == id)
+				aii = aij;
+			else if(j < id)
+				x[id] -= aij*x[j];
+				//s += aij * x[j];
+		}
+		assert(aii != 0.0);
+		x[id] /= aii;
+		//x[id] = omega*x[id]/aii + (1.0-omega)*x0[id];
+	}
+
+
+	for(int i = 0; i < n; i++)
+	{
+		x[i] = omega*x[i] + (1.0-omega)*x0[i];
 	}
 }
 
