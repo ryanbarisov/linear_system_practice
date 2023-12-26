@@ -1,7 +1,8 @@
 #include <preconditioner.h>
-#include <solver_parameters.hpp>
+#include <solver_parameters.h>
 #include <matrix.h>
 #include <method.h>
+#include <priority_queue.hpp>
 #include <algorithm>
 #include <set>
 
@@ -504,12 +505,12 @@ void AMG_Preconditioner::construct_CF_partition(int m)
 }
 
 
-AMG_Preconditioner::AMG_Preconditioner(const SparseMatrix* pA, SolverParameters parameters) 
-	: Preconditioner(PreconditionerType::AMG, pA)
+AMG_Preconditioner::AMG_Preconditioner(const SparseMatrix* pA, const SolverParameters& params)
+	: Preconditioner(pA, params)
 	{
-		amg_levels = std::max(2, parameters.GetIntegerParameter("amg_levels").second);
-		niters_smooth = std::max(0, parameters.GetIntegerParameter("niters_smooth").second);
-		w_cycle = std::max(0, parameters.GetIntegerParameter("w_cycle").second);
+		amg_levels = std::max(2, params.GetIntegerParameter("amg_levels").second);
+		niters_smooth = std::max(0, params.GetIntegerParameter("niters_smooth").second);
+		w_cycle = std::max(0, params.GetIntegerParameter("w_cycle").second);
 		Nm.resize(amg_levels);
 		Cm.resize(amg_levels-1);
 		Am.resize(amg_levels);

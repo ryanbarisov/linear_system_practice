@@ -2,56 +2,11 @@
 #include <iomanip>
 
 
-bool CG_method::Solve(const std::vector<double>& b, std::vector<double>& x)
-{
-	std::vector<double> p, Ap, r = b;
-	pA->Multiply(-1,x,1,r);
-	Ap.resize(pA->Size());
-	p = r;
-	double resid0 = FrobeniusNorm(r), resid;
-	if(resid0 < 1e-20)
-	{
-		std::cout << "Initial solution satisfies tolerance" << std::endl;
-		return true;
-	}
-	double alpha,beta,r2;
-	int iter = 0;
-	do
-	{
-		pA->Multiply(1,p,0,Ap);
-		r2 = DotProduct(r,r);
-		alpha = r2 / DotProduct(Ap,p);
-		Multiply(alpha,p,1,x);
-		Multiply(-alpha,Ap,1,r);
-		beta = DotProduct(r,r)/r2;
-		Multiply(1,r,beta,p);
-
-		resid = FrobeniusNorm(r);
-		iter++;
-
-		// if(iter % 10 == 0)
-		{
-			std::cout << "iter\t" << std::setw(4) << iter << "\trel_err\t" << std::setw(10) << resid/resid0 << "\t\t|\t" << std::setw(10) << reltol << "\r";
-			std::cout << std::endl;// std::cout.flush();
-			// std::cin.ignore();
-		}
-		
-	} while(iter < maxiters && resid > reltol * resid0);
-	if(iter == maxiters && resid > reltol * resid0)
-	{
-		std::cout << "\nMaximum iterations reached: " << maxiters << " converged to " << resid/resid0 << " relative tolerance " << std::endl;
-		return false;
-	}
-	else
-	{
-		std::cout << "Iterations: " << iter << " converged to " << resid/resid0 << " relative tolerance " << std::endl;
-		return true;
-	}
-}
-
-
 bool PCG_method::Solve(const std::vector<double>& b, std::vector<double>& x)
 {
+	int maxiters = params.GetIntegerParameter("maximum_iterations").second;
+	double reltol = params.GetRealParameter("relative_tolerance").second;
+	double abstol = params.GetRealParameter("absolute_tolerance").second;
 	int n = pA->Size();
 	std::vector<double> p, Ap(n), r = b, z(n,0.0);
 	pA->Multiply(-1,x,1,r);
@@ -99,71 +54,11 @@ bool PCG_method::Solve(const std::vector<double>& b, std::vector<double>& x)
 	}
 }
 
-bool BICGStab_method::Solve(const std::vector<double>& b, std::vector<double>& x)
-{
-	int n = pA->Size();
-
-	std::vector<double> p(n), r = b, r0, r0_hat, nu0(n,0.0), p0(n, 0.0), y(n, 0.0), h(n), s(n), z(n), t(n);
-	pA->Multiply(-1,x,1,r); // r = b-Ax
-	r0_hat = r;
-
-	double rho, w, beta;
-	double rho0 = 1.0, alpha = 1.0, w0 = 1.0;
-
-	double resid0 = FrobeniusNorm(r), resid;
-	if(resid0 < abstol)
-	{
-		std::cout << "Initial solution satisfies tolerance" << std::endl;
-		return true;
-	}
-
-	int iter = 0;
-	do
-	{
-		rho = DotProduct(r0_hat, r);
-		beta = rho/rho0 * alpha/w0;
-		rho0 = rho;
-		for(int i = 0; i < n; i++) p[i] = r[i] + beta*(p0[i] - w0*nu0[i]), p0[i] = p[i];
-		pA->Multiply(1.0,p,0.0,nu0); // nu0 <-- Ap
-		alpha = rho / DotProduct(r0_hat, nu0);
-		h = x;
-		Multiply(alpha,p,1.0,h); // h = x + alpha*p
-		s = r;
-		Multiply(-alpha,nu0,1.0,s); // s = r - alpha*nu0
-		pA->Multiply(1.0,s,0.0,t); // t <-- As
-		w0 = w = DotProduct(t,s)/DotProduct(t,t);
-		x = h;
-		Multiply(w,s,1.0,x);
-		r = s;
-		Multiply(-w,t,1.0,r);
-
-		
-
-		resid = FrobeniusNorm(r);
-		iter++;
-
-		// if(iter % 10 == 0)
-		{
-			std::cout << "iter\t" << std::setw(4) << iter << "\trel_err\t" << std::setw(10) << resid/resid0 << "\t\t|\t" << std::setw(10) << reltol << "\n";
-			std::cout.flush();
-			// std::cin.ignore();
-		}
-		
-	} while(iter < maxiters && resid > reltol * resid0);
-	if(iter == maxiters && resid > reltol * resid0)
-	{
-		std::cout << "\nMaximum iterations reached: " << maxiters << " converged to " << resid/resid0 << " relative tolerance " << std::endl;
-		return false;
-	}
-	else
-	{
-		std::cout << "Iterations: " << iter << " converged to " << resid/resid0 << " relative tolerance " << std::endl;
-		return true;
-	}
-}
-
 bool PBICGStab_method::Solve(const std::vector<double>& b, std::vector<double>& x)
 {
+	int maxiters = params.GetIntegerParameter("maximum_iterations").second;
+	double reltol = params.GetRealParameter("relative_tolerance").second;
+	double abstol = params.GetRealParameter("absolute_tolerance").second;
 	int n = pA->Size();
 
 	std::vector<double> p(n), r = b, r0, r0_hat, nu0(n,0.0), p0(n, 0.0), y(n, 0.0), h(n), s(n), z(n), t(n);
@@ -201,8 +96,6 @@ bool PBICGStab_method::Solve(const std::vector<double>& b, std::vector<double>& 
 		Multiply(w,z,1.0,x);
 		r = s;
 		Multiply(-w,t,1.0,r);
-
-		
 
 		resid = FrobeniusNorm(r);
 		iter++;

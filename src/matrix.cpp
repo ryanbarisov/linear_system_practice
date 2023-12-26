@@ -2,6 +2,19 @@
 #include <matrixwriter.h>
 
 
+MatrixFormat GetMatrixFormat(std::string filename)
+{
+	std::string::size_type pos = filename.find_last_of('.');
+	if(filename.substr(pos+1) == "mtx")
+		return MatrixFormat::MTX;
+	else if(filename.substr(pos+1) == "dat")
+		return MatrixFormat::CSR;
+	else
+	{
+		std::cerr << "Failed to get matrix format from extension for file: " << filename << std::endl;
+		return MatrixFormat::ERROR;
+	}
+}
 
 void SparseMatrix::add_element(int row, int col, double val)
 {
@@ -143,4 +156,36 @@ int check_nans(const SparseMatrix* mat)
 		}
 	}
 	return last_found;
+}
+
+CSRMatrix::CSRMatrix(int _n) : n(n) {}
+
+void CSRMatrix::Multiply(double alpha, const std::vector<double>& x, double beta, std::vector<double>& y) const
+{
+	if(csc)
+		for(int k = 0; k < n; ++k)
+		{
+			double Ax = 0.0;
+			for(int j = ia[k]; j < ia[k+1]; ++j)
+				Ax += a[j]*x[ja[k]];
+			y[k] = alpha*Ax + beta*y[k];
+		}
+	else
+	{
+		std::vector<double> z = y;
+		std::fill(y.begin(), y.end(), 0.0);
+		for(int k = 0; k < n; ++k)
+		{
+			for(int j = ia[k]; j < ia[k+1]; ++j)
+				y[j] += a[j]*x[k];
+			y[k] += beta*z[k];
+		}
+	}
+}
+
+
+
+bool CSRMatrix::Save(const char * filename, MatrixFormat fmt) const
+{
+	return true;
 }

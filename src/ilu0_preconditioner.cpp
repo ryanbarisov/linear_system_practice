@@ -1,13 +1,11 @@
 #include <preconditioner.h>
-#include <solver_parameters.hpp>
+#include <solver_parameters.h>
 #include <matrix.h>
 #include <method.h>
-#include <list>
-#include <matrixwriter.h>
 
 
-ILU0_Preconditioner::ILU0_Preconditioner(const SparseMatrix* pA, SolverParameters parameters) 
-	: Preconditioner(PreconditionerType::ILUC, pA), LU(nullptr) 
+ILU0_Preconditioner::ILU0_Preconditioner(const SparseMatrix* pA, const SolverParameters& params)
+	: Preconditioner(pA, params), LU(nullptr)
 	{}
 
 ILU0_Preconditioner::~ILU0_Preconditioner() 
@@ -17,11 +15,8 @@ ILU0_Preconditioner::~ILU0_Preconditioner()
 
 bool ILU0_Preconditioner::SetupPreconditioner()
 {
-	int n = pA->Size();
 	LU = new SparseMatrix(*pA);
-	
 	construct_inverse(LU);
-
 	return true;
 }
 
@@ -79,6 +74,4 @@ void ILU0_Preconditioner::construct_inverse(SparseMatrix* pA)
 			}
 		}
 	}
-	
-	//MTXMatrixWriter::WriteMatrix(*pA, "test.mtx");
 }

@@ -18,14 +18,37 @@ enum class MatrixFormat
 	ERROR
 };
 
+MatrixFormat GetMatrixFormat(std::string name);
+
 class Matrix
 {
 public:
+	// y <- alpha Ax + beta y
 	virtual void Multiply(double alpha, const std::vector<double>& x, double beta, std::vector<double>& y) const = 0;
 	virtual int Size() const = 0;
 	virtual bool Save(const char * filename, MatrixFormat fmt) const = 0;
 	virtual ~Matrix() {}
 };
+
+class CSRMatrix : public Matrix
+{
+private:
+	int n;
+	bool csc = false;
+	std::vector<double> a;
+	std::vector<int> ia, ja;
+public:
+	CSRMatrix(int n);
+	CSRMatrix(const char * filename);
+	void SetCSC() {csc = true;}
+	void SetCSR() {csc = false;}
+	void Multiply(double alpha, const std::vector<double>& x, double beta, std::vector<double>& y) const;
+	int Size() const {return n;}
+	bool Save(const char * filename, MatrixFormat fmt) const;
+	void PushElement(int row, int col, double elem);
+};
+
+
 
 typedef std::pair<int,double> entry;
 typedef std::vector<entry> sparse_type;

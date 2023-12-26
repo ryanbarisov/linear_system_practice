@@ -2,8 +2,7 @@
 #define _PRECONDITIONER_H
 
 #include <matrix.h>
-#include "solver_parameters.hpp"
-#include "priority_queue.hpp"
+#include <solver_parameters.h>
 
 
 enum class PreconditionerType
@@ -16,13 +15,19 @@ enum class PreconditionerType
 	GAUSS_SEIDEL
 };
 
+
+PreconditionerType GetPreconditionerType(std::string name);
+
 class Preconditioner
 {
 protected:
 	PreconditionerType mytype;
 	const SparseMatrix* pA;
 public:
-	Preconditioner(PreconditionerType _mytype, const SparseMatrix* _pA) : mytype(_mytype), pA(_pA) {}
+	Preconditioner(const SparseMatrix* _pA, const SolverParameters& params) : pA(_pA) 
+	{
+		mytype = GetPreconditionerType(params.GetStringParameter("preconditioner").second);
+	}
 	PreconditionerType GetType() const {return mytype;}
 
 	virtual ~Preconditioner() {}
@@ -31,12 +36,24 @@ public:
 	virtual bool PreconditionedSolve(const std::vector<double>& rhs, std::vector<double>& x) = 0;
 };
 
+class NOOP_Preconditioner : public Preconditioner
+{
+public:
+	NOOP_Preconditioner(const SparseMatrix* _pA, const SolverParameters& params) : Preconditioner(_pA, params) {}
+	bool SetupPreconditioner() {return true;}
+	bool PreconditionedSolve(const std::vector<double>& rhs, std::vector<double>& x)
+	{
+		std::copy(rhs.begin(), rhs.end(), x.begin());
+		return true;
+	}
+};
+
 class ILU0_Preconditioner : public Preconditioner
 {
 private:
 	SparseMatrix * LU;
 public:
-	ILU0_Preconditioner(const SparseMatrix* _pA, SolverParameters parameters);
+	ILU0_Preconditioner(const SparseMatrix* _pA, const SolverParameters& params);
 	~ILU0_Preconditioner();
 
 	bool SetupPreconditioner() override;
@@ -54,7 +71,7 @@ private:
 	double tau;
 	int lfil;
 public:
-	ILUC_Preconditioner(const SparseMatrix* _pA, SolverParameters parameters);
+	ILUC_Preconditioner(const SparseMatrix* _pA, const SolverParameters& params);
 	~ILUC_Preconditioner();
 
 	bool SetupPreconditioner() override;
@@ -97,7 +114,7 @@ private:
 	void W_cycle(int m, std::vector<double>& x, const std::vector<double>& b);
 
 public:
-	AMG_Preconditioner(const SparseMatrix* _pA, SolverParameters parameters);
+	AMG_Preconditioner(const SparseMatrix* _pA, const SolverParameters& params);
 	~AMG_Preconditioner();
 
 	bool SetupPreconditioner() override;
@@ -110,7 +127,7 @@ class AMG_Preconditioner : public Preconditioner
 {
 	Preconditioner* Next = nullptr;
 public:
-	AMG_Preconditioner(const SparseMatrix* _pA, SolverParameters parameters);
+	AMG_Preconditioner(const SparseMatrix* _pA, const SolverParameters& params);
 	AMG_Preconditioner(const AMG_Preconditioner* prev, int amg_levels, int depth);
 	~AMG_Preconditioner();
 
@@ -123,7 +140,7 @@ public:
 class JACOBI_Preconditioner : public Preconditioner
 {
 public:
-	JACOBI_Preconditioner(const SparseMatrix* _pA, SolverParameters parameters) : Preconditioner(PreconditionerType::JACOBI, _pA) {}
+	JACOBI_Preconditioner(const SparseMatrix* _pA, const SolverParameters& params) : Preconditioner(_pA, params) {}
 
 	bool SetupPreconditioner() {return true;}
 	bool PreconditionedSolve(const std::vector<double>& rhs, std::vector<double>& x) override;
@@ -132,7 +149,7 @@ public:
 class GS_Preconditioner : public Preconditioner
 {
 public:
-	GS_Preconditioner(const SparseMatrix* _pA, SolverParameters parameters) : Preconditioner(PreconditionerType::GAUSS_SEIDEL, _pA) {}
+	GS_Preconditioner(const SparseMatrix* _pA, const SolverParameters& params) : Preconditioner(_pA, params) {}
 
 	bool SetupPreconditioner() {return true;}
 	bool PreconditionedSolve(const std::vector<double>& rhs, std::vector<double>& x) override;
@@ -140,28 +157,21 @@ public:
 
 ////////////////////////////////////////////////////////////////////
 
-static Preconditioner * CreatePreconditioner(PreconditionerType ptype, const SparseMatrix* pA, const SolverParameters& parameters)
+static Preconditioner * CreatePreconditioner(const SparseMatrix* pA, const SolverParameters& parameters)
 {
-	if(ptype == PreconditionerType::ILU0)
-	{
+	PreconditionerType ptype = GetPreconditionerType(parameters.GetStringParameter("preconditioner").second);
+	if(ptype == PreconditionerType::NONE)
+		return new NOOP_Preconditioner(pA, parameters);
+	else if(ptype == PreconditionerType::ILU0)
 		return new ILU0_Preconditioner(pA, parameters);
-	}
-	if(ptype == PreconditionerType::ILUC)
-	{
+	else if(ptype == PreconditionerType::ILUC)
 		return new ILUC_Preconditioner(pA, parameters);
-	}
 	else if(ptype == PreconditionerType::AMG)
-	{
 		return new AMG_Preconditioner(pA, parameters);
-	}
 	else if(ptype == PreconditionerType::JACOBI)
-	{
 		return new JACOBI_Preconditioner(pA, parameters);
-	}
 	else if(ptype == PreconditionerType::GAUSS_SEIDEL)
-	{
 		return new GS_Preconditioner(pA, parameters);
-	}
 	else
 	{
 		std::cerr << "Sorry, preconditioner was not implemented " << std::endl;

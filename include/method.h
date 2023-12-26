@@ -6,170 +6,46 @@
 #include <vector>
 #include <utility>
 
+enum class MethodType
+{
+	CG,
+	BICGSTAB
+};
 
 class Method
 {
 protected:
-	SolverParameters parameters;
+	SolverParameters params;
+	Preconditioner* preconditioner;
 	const SparseMatrix* pA;
-	int maxiters;
-	double reltol, abstol;
 public:
-	virtual bool Setup(const SparseMatrix * _pA, PreconditionerType ptype = PreconditionerType::NONE) 
+	virtual bool Setup(const SparseMatrix * _pA, const SolverParameters& _params)
 	{
 		pA = _pA;
-		maxiters = GetIntegerParameter("maximum_iterations");
-		reltol = GetRealParameter("relative_tolerance");
-		abstol = GetRealParameter("absolute_tolerance");
-		return true;
+		params = _params;
+		preconditioner = CreatePreconditioner(pA, params);
+		return preconditioner ? preconditioner->SetupPreconditioner() : false;
 	}
 	virtual bool Solve(const std::vector<double>& b, std::vector<double>& x) = 0;
 	virtual ~Method() {}
-
-	Method()
-	{
-		// common default parameters goes here
-		parameters.SetIntegerParameter("maximum_iterations", 1000);
-		parameters.SetRealParameter("relative_tolerance", 1.0e-8);
-		parameters.SetRealParameter("absolute_tolerance", 1.0e-12);
-	}
-	const SparseMatrix* GetMatrix() const {return pA;}
-
-	void SetRealParameter(std::string name, double value)	{parameters.SetRealParameter(name, value);}
-	void SetIntegerParameter(std::string name, int value)	{parameters.SetIntegerParameter(name, value);}
-	double GetRealParameter(std::string name) const
-	{
-		std::pair<bool,double> find_pair = parameters.GetRealParameter(name);
-		if(!find_pair.first)
-			std::cerr << "Parameter " << name << " was not set." << std::endl;
-		return find_pair.second;
-	}
-	int GetIntegerParameter(std::string name) const
-	{
-		std::pair<bool,int> find_pair = parameters.GetIntegerParameter(name);
-		if(!find_pair.first)
-			std::cerr << "Parameter " << name << " was not set." << std::endl;
-		return find_pair.second;
-	}
-};
-
-class PreconditionedMethod : public Method
-{
-protected:
-	Preconditioner * preconditioner;
-public:
-	PreconditionedMethod() : preconditioner(NULL)
-	{
-		// default preconditioner parameters goes here
-		// ILUC
-		parameters.SetRealParameter("drop_tolerance", 1.0e-4);
-		parameters.SetIntegerParameter("level_of_fill", 80);
-		// AMG
-		parameters.SetIntegerParameter("amg_levels", 2);
-		parameters.SetIntegerParameter("niters_smooth", 2);
-		parameters.SetIntegerParameter("w_cycle", 0);
-	}
-	PreconditionedMethod(const PreconditionedMethod& other)
-	{
-		preconditioner = CreatePreconditioner(other.preconditioner->GetType(), other.GetMatrix(), other.parameters);
-	}
-	PreconditionedMethod& operator=(const PreconditionedMethod& other)
-	{
-		if(preconditioner != NULL)	
-		{
-			delete preconditioner;
-			preconditioner = NULL;
-		}
-		preconditioner = CreatePreconditioner(other.preconditioner->GetType(), other.GetMatrix(), other.parameters);
-		return *this;
-	}
-	virtual ~PreconditionedMethod()
-	{
-		if(preconditioner != NULL)	
-		{
-			delete preconditioner;
-			preconditioner = NULL;
-		}
-	}
-
-	bool Setup(const SparseMatrix * A, PreconditionerType ptype) 
-	{
-		Method::Setup(A);
-		if(preconditioner == NULL)
-			preconditioner = CreatePreconditioner(ptype, A, parameters);
-		if(preconditioner == NULL)	return false;
-		return preconditioner->SetupPreconditioner();
-	}
 };
 
 
-
-
-class CG_method : public Method
+class PCG_method : public Method
 {
 public:
-	virtual bool Setup(const SparseMatrix* pA, PreconditionerType ptype = PreconditionerType::NONE)
-	{
-		return Method::Setup(pA);
-	}
 	bool Solve(const std::vector<double>& b, std::vector<double>& x);
 };
 
-
-
-class PCG_method : public PreconditionedMethod
+class PBICGStab_method : public Method
 {
 public:
-	PCG_method() : PreconditionedMethod() {}
-	PCG_method(const PCG_method& other) : PreconditionedMethod(other) {}
-	PCG_method& operator=(const PCG_method& other) 
-	{
-		PreconditionedMethod::operator=(other);
-		return *this;
-	}
-	virtual ~PCG_method()	{}
-	virtual bool Setup(const SparseMatrix* pA, PreconditionerType ptype = PreconditionerType::NONE)
-	{
-		return PreconditionedMethod::Setup(pA,ptype);
-	}
-
-	bool Solve(const std::vector<double>& b, std::vector<double>& x);
-};
-
-class BICGStab_method : public Method
-{
-public:
-	virtual bool Setup(const SparseMatrix* pA, PreconditionerType ptype = PreconditionerType::NONE)
-	{
-		return Method::Setup(pA);
-	}
-	bool Solve(const std::vector<double>& b, std::vector<double>& x);
-};
-
-class PBICGStab_method : public PreconditionedMethod
-{
-public:
-	PBICGStab_method() : PreconditionedMethod() {}
-	PBICGStab_method(const PBICGStab_method& other) : PreconditionedMethod(other) {}
-	PBICGStab_method& operator=(const PBICGStab_method& other) 
-	{
-		PreconditionedMethod::operator=(other);
-		return *this;
-	}
-	virtual ~PBICGStab_method()	{}
-	virtual bool Setup(const SparseMatrix* pA, PreconditionerType ptype = PreconditionerType::NONE)
-	{
-		return PreconditionedMethod::Setup(pA,ptype);
-	}
-
 	bool Solve(const std::vector<double>& b, std::vector<double>& x);
 };
 
 
 void jacobi_solve(const SparseMatrix* pA, std::vector<double>& x, const std::vector<double>& b);
 void gs_solve(const SparseMatrix* pA, std::vector<double>& x, const std::vector<double>& b);
-//void symm_gs_solve(const SparseMatrix* pA, std::vector<double>& x, const std::vector<double>& b);
-
 
 void LU_solve(const SparseMatrix& L, const SparseMatrix& U, const std::vector<double>& b, std::vector<double>& x);
 void LU_in_place_solve(SparseMatrix* pA, const std::vector<double>& b, std::vector<double>& x);
@@ -181,5 +57,15 @@ void gs_precondition_backward(const SparseMatrix* pA, std::vector<double>& x, co
 
 void sor_precondition(const SparseMatrix* pA, std::vector<double>& x, const std::vector<double>& b);
 
+static Method* CreateMethod(const SolverParameters& params)
+{
+	Method* method;
+	std::string stype = params.GetStringParameter("solver").second;
+	if(stype == "cg")
+		return new PCG_method();
+	else if(stype == "bicgstab")
+		return new PBICGStab_method();
+	else return NULL;
+}
 
 #endif // METHOD_H

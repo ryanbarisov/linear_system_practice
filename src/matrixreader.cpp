@@ -179,7 +179,7 @@ SparseMatrix* CSRMatrixReader::ReadMatrix(const char * filename)
 
 
 
-bool read_rhs_from_mtx(std::vector<double>& rhs, const char* filename)
+bool read_vector_mtx(std::vector<double>& rhs, const char* filename)
 {
 	bool success = false;
 	std::ifstream ifs(filename);

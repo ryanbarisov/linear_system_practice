@@ -25,7 +25,7 @@ public:
 
 SparseMatrix* ReadMatrix(MatrixFormat fmt, const char * filename);
 
-bool read_rhs_from_mtx(std::vector<double>& rhs, const char* filename);
+bool read_vector_mtx(std::vector<double>& rhs, const char* filename);
 
 
 #endif // MATRIX_READER_H

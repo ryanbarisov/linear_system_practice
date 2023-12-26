@@ -1,15 +1,15 @@
 #include <preconditioner.h>
-#include <solver_parameters.hpp>
+#include <solver_parameters.h>
 #include <matrix.h>
 #include <method.h>
 #include <list>
 
 
-ILUC_Preconditioner::ILUC_Preconditioner(const SparseMatrix* pA, SolverParameters parameters) 
-	: Preconditioner(PreconditionerType::ILUC, pA), L(nullptr), U(nullptr) 
+ILUC_Preconditioner::ILUC_Preconditioner(const SparseMatrix* pA, const SolverParameters& params)
+	: Preconditioner(pA, params), L(nullptr), U(nullptr)
 	{
-		tau = parameters.GetRealParameter("drop_tolerance").second;
-		lfil = parameters.GetIntegerParameter("level_of_fill").second;
+		tau = params.GetRealParameter("drop_tolerance").second;
+		lfil = params.GetIntegerParameter("level_of_fill").second;
 	}
 
 ILUC_Preconditioner::~ILUC_Preconditioner() 
@@ -44,12 +44,9 @@ bool ILUC_Preconditioner::SetupPreconditioner()
 	std::list<entry> * Ulist = new std::list<entry>[n];
 	std::list<entry> * Llist = new std::list<entry>[n];
 	for(int k = 0; k < n; k++)
-	{
 		Ufirst[k] = Lfirst[k] = 0;
-	}
 	// while(Arows[0].row[Ufirst[0]].first < 1 && Ufirst[0] < Arows[0].row.size())	Ufirst[0]++;
 	// while(Acols[0].row[Lfirst[0]].first < 1 && Lfirst[0] < Acols[0].row.size())	Lfirst[0]++;
-
 
 	double * big_elems = new double[lfil];
 	sparse_row z, w;

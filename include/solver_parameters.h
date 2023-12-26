@@ -4,14 +4,18 @@
 #include <map>
 #include <string>
 #include <utility>
+#include <iostream>
 
+enum class PreconditionerType;
+enum class MethodType;
 
 class SolverParameters
 {
 private:
-	static const bool debug = false;
+	bool debug = false;
 	std::map<std::string, double>	real_parameters;
-	std::map<std::string, int>		integer_parameters;
+	std::map<std::string, int>	integer_parameters;
+	std::map<std::string, std::string> string_parameters;
 public:
 	void SetRealParameter(std::string name, double value)
 	{
@@ -41,6 +45,24 @@ public:
 		else
 			return parameter_not_found;
 	}
+	void SetStringParameter(std::string name, std::string value)
+	{
+		if(debug)	std::cerr << "Set integer parameter " << name << ": " << value  << std::endl;
+		string_parameters[name] = value;
+	}
+	std::pair<bool,std::string> GetStringParameter(std::string name) const
+	{
+		static const std::pair<bool,std::string> parameter_not_found = std::make_pair(false, "");
+		std::map<std::string,std::string>::const_iterator it = string_parameters.find(name);
+		if(it != string_parameters.end())	
+			return std::make_pair(true, it->second);
+		else
+			return parameter_not_found;
+	}
+	void SetParameter(std::string name, std::string value);
+	void Setup(std::string filename);
+	void SetupDefault();
 };
+
 
 #endif // SOLVER_PARAMETERS_H
