@@ -80,10 +80,11 @@ int main(int argc, char ** argv)
 		return 0;
 	}
 
-	SparseMatrix * A = ReadMatrix(GetMatrixFormat(matrix_filename), matrix_filename.c_str());
+	CSRMatrix * A = ReadMatrix(GetMatrixFormat(matrix_filename), matrix_filename.c_str());
+	A->Save("out.csr", MatrixFormat::CSR);
 
 	int n = A->Size();
-	std::vector<double> x(n,0.0),b(n);
+	std::vector<double> x(n,0.0),b(n, 1.0);
 	read_vector_mtx(b, rhs_filename.c_str());
 
 	Method * method = CreateMethod(params);

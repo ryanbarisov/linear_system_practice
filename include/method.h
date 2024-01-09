@@ -17,9 +17,9 @@ class Method
 protected:
 	SolverParameters params;
 	Preconditioner* preconditioner;
-	const SparseMatrix* pA;
+	const CSRMatrix* pA;
 public:
-	virtual bool Setup(const SparseMatrix * _pA, const SolverParameters& _params)
+	virtual bool Setup(const CSRMatrix * _pA, const SolverParameters& _params)
 	{
 		pA = _pA;
 		params = _params;
@@ -27,7 +27,7 @@ public:
 		return preconditioner ? preconditioner->SetupPreconditioner() : false;
 	}
 	virtual bool Solve(const std::vector<double>& b, std::vector<double>& x) = 0;
-	virtual ~Method() {}
+	virtual ~Method() {if(preconditioner) delete preconditioner;}
 };
 
 
@@ -44,18 +44,13 @@ public:
 };
 
 
-void jacobi_solve(const SparseMatrix* pA, std::vector<double>& x, const std::vector<double>& b);
-void gs_solve(const SparseMatrix* pA, std::vector<double>& x, const std::vector<double>& b);
+void LU_solve(const CSRMatrix& L, const CSRMatrix& U, const std::vector<double>& b, std::vector<double>& x);
+void LU_in_place_solve(const CSRMatrix* pA, const std::vector<double>& b, std::vector<double>& x);
 
-void LU_solve(const SparseMatrix& L, const SparseMatrix& U, const std::vector<double>& b, std::vector<double>& x);
-void LU_in_place_solve(SparseMatrix* pA, const std::vector<double>& b, std::vector<double>& x);
-
-void jacobi_precondition(const SparseMatrix* pA, std::vector<double>& x, const std::vector<double>& b);
-void gs_precondition(const SparseMatrix* pA, std::vector<double>& x, const std::vector<double>& b);
-void symm_gs_precondition(const SparseMatrix* pA, std::vector<double>& x, const std::vector<double>& b);
-void gs_precondition_backward(const SparseMatrix* pA, std::vector<double>& x, const std::vector<double>& b);
-
-void sor_precondition(const SparseMatrix* pA, std::vector<double>& x, const std::vector<double>& b);
+void jacobi_precondition(const CSRMatrix* pA, std::vector<double>& x, const std::vector<double>& b);
+void gs_precondition(const CSRMatrix* pA, std::vector<double>& x, const std::vector<double>& b);
+void gs_precondition_backward(const CSRMatrix* pA, std::vector<double>& x, const std::vector<double>& b);
+void ssor_precondition(const CSRMatrix* pA, std::vector<double>& x, const std::vector<double>& b);
 
 static Method* CreateMethod(const SolverParameters& params)
 {

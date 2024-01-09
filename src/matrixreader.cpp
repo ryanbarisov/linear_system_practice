@@ -4,7 +4,7 @@
 #include <algorithm>
 #include <cctype>
 
-SparseMatrix* ReadMatrix(MatrixFormat fmt, const char * filename)
+CSRMatrix* ReadMatrix(MatrixFormat fmt, const char * filename)
 {
 	if(fmt == MatrixFormat::MTX)
 		return MTXMatrixReader::ReadMatrix(filename);
@@ -61,7 +61,7 @@ static int parse_string_numbers(std::string str)
 	return count;
 }
 
-SparseMatrix* MTXMatrixReader::ReadMatrix(const char * filename)
+CSRMatrix* MTXMatrixReader::ReadMatrix(const char * filename)
 {
 	SparseMatrix* A = nullptr;
 
@@ -69,6 +69,7 @@ SparseMatrix* MTXMatrixReader::ReadMatrix(const char * filename)
 	if(!ifs.is_open())
 	{
 		std::cout << "Failed to open file " << filename << std::endl;
+		return nullptr;
 	}
 	else
 	{
@@ -76,12 +77,16 @@ SparseMatrix* MTXMatrixReader::ReadMatrix(const char * filename)
 		bool read_first_line = false;
 		double aij;
 		std::string s;
+		std::vector<int> ia, ja;
+		std::vector<double> a;
 		while(!ifs.eof())
 		{
 			std::getline(ifs,s);
 			if(s.empty())	continue;
 			else if(s[0] == '%')
+			{
 				continue;	// skip comment line
+			}
 			else
 			{
 				std::stringstream ss(s);
@@ -102,18 +107,23 @@ SparseMatrix* MTXMatrixReader::ReadMatrix(const char * filename)
 						cols = 1;
 						nnz = rows;
 					}
-
-					A = new SparseMatrix(rows);
+					ia.resize(rows+1, 0);
+					//ja.resize(nnz);
+					//a.resize(nnz);
 				}
 				else
 				{
 					ss >> i >> j >> aij;
-					// (*A)[i-1].add_element(j-1, aij); k++;
-					{
-						// for symmetric matrices from Florida collection
-						(*A)[i-1].add_element(j-1, aij); k++;
-						(*A)[j-1].add_element(i-1, aij); k++;
-					}
+					--i; --j;
+					for(int k = i+1; k < rows+1; ++k)
+						ia[k]++;
+					bool found = false;
+					int pos = ia[i];
+					while(!found && pos < ia[i+1]-1 && pos < ja.size())
+						if(j < ja[pos]) found = true;
+						else ++pos;
+					ja.insert(ja.begin()+pos, j);
+					a.insert(a.begin()+pos, aij);
 				}
 				if(ss.fail())
 				{
@@ -124,56 +134,45 @@ SparseMatrix* MTXMatrixReader::ReadMatrix(const char * filename)
 					read_first_line = true;
 			}
 		}
-		std::cout << "Matrix " << filename << ": " << rows << " X " << cols << ", nnz=" << k << std::endl;
+		std::cout << "Matrix " << filename << ": " << rows << " X " << cols << ", nnz=" << nnz << std::endl;
 		//MTXMatrixWriter::WriteMatrix(*A, "save.mtx");
+		ifs.close();
+		return new CSRMatrix(a, ia, ja);
 	}
-	ifs.close();
-
-	return A;
 }
 
 
 
 
-SparseMatrix* CSRMatrixReader::ReadMatrix(const char * filename)
+CSRMatrix* CSRMatrixReader::ReadMatrix(const char * filename)
 {
-	SparseMatrix* A = nullptr;
-
 	std::ifstream ifs(filename);
 	if(!ifs.is_open())
 	{
 		std::cout << "Failed to open file " << filename << std::endl;
+		return nullptr;
 	}
 	else
 	{
 		int rows, nnz;
 		ifs >> rows;
 
-		int * ia = new int[rows+1];
+		std::vector<int> ia(rows+1), ja;
+		std::vector<double> a;
 		for(int i = 0; i < rows+1; i++)
-			ifs >> ia[i];
-
-		nnz = ia[rows] - ia[0];
-		int * ja = new int[nnz];
-		double * a = new double[nnz];
-		for(int i = 0; i < nnz; i++) ifs >> ja[i];
-		for(int i = 0; i < nnz; i++) ifs >> a[i];
-		
-		A = new SparseMatrix(rows);
-		for(int r = 0; r < rows; r++)
 		{
-			sparse_row& row = (*A)[r];
-			for(int k = ia[r]-1; k < ia[r+1]-1; k++)
-				row.add_element(ja[k]-1, a[k]);
+			ifs >> ia[i];
+			--ia[i];
 		}
 
-		delete[] ia;
-		delete[] ja;
-		delete[] a;
+		nnz = ia[rows] - ia[0];
+		ja.resize(nnz);
+		a.resize(nnz);
+		for(int i = 0; i < nnz; i++) {ifs >> ja[i], --ja[i];}
+		for(int i = 0; i < nnz; i++) ifs >> a[i];
+		ifs.close();
+		return new CSRMatrix(a, ia, ja);
 	}
-	ifs.close();
-
-	return A;
 }
 
 

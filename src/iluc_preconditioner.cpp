@@ -1,11 +1,12 @@
+#include <algorithm>
 #include <preconditioner.h>
 #include <solver_parameters.h>
 #include <matrix.h>
 #include <method.h>
-#include <list>
 
+double Timer();
 
-ILUC_Preconditioner::ILUC_Preconditioner(const SparseMatrix* pA, const SolverParameters& params)
+ILUC_Preconditioner::ILUC_Preconditioner(const CSRMatrix* pA, const SolverParameters& params)
 	: Preconditioner(pA, params), L(nullptr), U(nullptr)
 	{
 		tau = params.GetRealParameter("drop_tolerance").second;
@@ -18,167 +19,102 @@ ILUC_Preconditioner::~ILUC_Preconditioner()
 	if(U != nullptr)	delete U;
 }
 
+
+//https://faculty.cc.gatech.edu/~echow/pubs/crout.pdf
 bool ILUC_Preconditioner::SetupPreconditioner()
 {
 	int n = pA->Size();
-	L = new SparseMatrix(n);
-	U = new SparseMatrix(n);
-
-	// prepare rows and columns of A into separate structures
-	// sparse_row * Arows = new sparse_row[n];
-	sparse_row * Acols = new sparse_row[n];
-	entry e;
-	for(int k = 0; k < pA->Size(); k++)
+	std::vector<int> Ufirst(n), Lfirst(n);
+	std::vector<std::vector<int>> Ulist(n), Llist(n);
+	std::vector<std::vector<int>> Alist(n);
+	std::vector<std::vector<double>> Blist(n);
+	for(int i = 0; i < n; ++i)
+		for(int j = pA->GetIA(i); j < pA->GetIA(i+1); ++j)
+			if(pA->GetJA(j) < i)
+			{
+				Alist[pA->GetJA(j)].push_back(i);
+				Blist[pA->GetJA(j)].push_back(pA->GetA(j));
+			}
+	RowAccumulator z(n), w(n);
+	std::vector<int> ila(n+1), jla, iua(n+1), jua;
+	std::vector<double> la, ua;
+	jla.reserve(n*(2*lfil+1));
+	jua.reserve(n*(2*lfil+1));
+	la.reserve(n*(2*lfil+1));
+	ua.reserve(n*(2*lfil+1));
+	double t_sadd = 0.0, t_upd1 = 0.0, t_upd2 = 0.0, t_clr = 0.0, t0;
+	for(int k = 0; k < n; ++k)
 	{
-		const sparse_row& r = (*pA)[k];
-		// Arows[k] = r;
-		for(int j = 0; j < r.row.size(); j++)
+		t0 = Timer();
+		z.SetRowFrom(pA, k, k, n);
+		double znorm = z.L2Norm();
+		std::vector<int>& Ll = Llist[k], &Ul = Ulist[k];
+		for(int j = 0; j < Ll.size(); ++j)
 		{
-			int col = r.row[j].first;
-			Acols[col].add_element(k, r.row[j].second);
+			int i = Ll[j];
+			assert(jla[Lfirst[i]] == k);
+			z.SparseAdd(ua,jua,-la[Lfirst[i]],Ufirst[i],iua[i+1]);
 		}
+		w.SetIntervalFrom(pA->Size(), Alist[k], Blist[k]);
+		double wnorm = w.L2Norm();
+		for(int j = 0; j < Ul.size(); ++j)
+		{
+			int i = Ul[j];
+			assert(jua[Ufirst[i]] == k);
+			w.SparseAdd(la,jla,-ua[Ufirst[i]],Lfirst[i],ila[i+1]);
+		}
+		t_sadd += Timer()-t0;
+		z.Drop(k,tau*znorm,lfil);
+		w.Drop(k,tau*wnorm,lfil);
+		w.Remove(k);
+		Ufirst[k] = iua[k];
+		Lfirst[k] = ila[k];
+		t0 = Timer();
+		std::copy(z.jw.begin(), z.jw.end(), std::back_inserter(jua));
+		std::copy(z.w.begin(), z.w.end(), std::back_inserter(ua));
+		iua[k+1] = iua[k] + z.Size();
+		for(int j = 0; j < Ul.size(); ++j)
+		{
+			int i = Ul[j];
+			if(Ufirst[i]+1 < iua[i+1])
+				Ulist[jua[++Ufirst[i]]].push_back(i);
+		}
+		Ulist[jua[++Ufirst[k]]].push_back(k);
+		t_upd1 += Timer()-t0;
+
+		t0 = Timer();
+		ila[k+1] = ila[k] + w.Size()+1;
+		jla.push_back(k);
+		la.push_back(1.0);
+		w.Scale(1.0/z.Get(k));
+		std::copy(w.jw.begin(), w.jw.end(), std::back_inserter(jla));
+		std::copy(w.w.begin(), w.w.end(), std::back_inserter(la));
+		for(int j = 0; j < Ll.size(); ++j)
+		{
+			int i = Ll[j];
+			if(Lfirst[i]+1 < ila[i+1])
+				Llist[jla[++Lfirst[i]]].push_back(i);
+		}
+		Llist[jla[++Lfirst[k]]].push_back(k);
+		t_upd2 += Timer()-t0;
+
+		t0 = Timer();
+		z.Clear();
+		w.Clear();
+		t_clr += Timer()-t0;
 	}
-	// initialize bi-index structure
-	int * Ufirst = new int[n];
-	int * Lfirst = new int[n];
-	std::list<entry> * Ulist = new std::list<entry>[n];
-	std::list<entry> * Llist = new std::list<entry>[n];
-	for(int k = 0; k < n; k++)
-		Ufirst[k] = Lfirst[k] = 0;
-	// while(Arows[0].row[Ufirst[0]].first < 1 && Ufirst[0] < Arows[0].row.size())	Ufirst[0]++;
-	// while(Acols[0].row[Lfirst[0]].first < 1 && Lfirst[0] < Acols[0].row.size())	Lfirst[0]++;
+	assert(ila[n] == la.size());
+	L = new CSRMatrix(la,ila,jla);
+	assert(iua[n] == ua.size());
+	U = new CSRMatrix(ua,iua,jua);
 
-	double * big_elems = new double[lfil];
-	sparse_row z, w;
-	for(int k = 0; k < n; k++)
-	{
-		z.assign((*pA)[k],k,n);
-		for(std::list<entry>::const_iterator it = Llist[k].begin(); it != Llist[k].end(); ++it)
-			z.plus(-it->second, (*U)[it->first],k,n);
-		w.assign(Acols[k],k+1,n);
-		for(std::list<entry>::const_iterator it = Ulist[k].begin(); it != Ulist[k].end(); ++it)
-			w.plus(-it->second, (*L)[it->first],k+1,n);
-		
-		double ukk = z.get_element(k);
-		w *= 1.0/ukk;
-		// TODO dropping rule for z and w
-
-		// drop row z
-		for(int kk = 0; kk < lfil; kk++)
-			big_elems[kk] = 0.0;
-		for(sparse_type::iterator it = z.row.begin(); it != z.row.end(); )
-		{
-			double val = fabs(it->second);
-			if(val < tau)
-			{
-				if(it->first == k)
-				{
-					std::cerr << "Delete diagonal element value " << val << " row " << k << std::endl;
-					std::cin.ignore();
-				}
-				it = z.row.erase(it);
-			}
-			else
-			{
-				int kk = 0;
-				while(kk < lfil && val < big_elems[kk])	kk++;
-				if(kk < lfil)
-				{
-					for(int kkk = lfil-1; kkk > kk; kkk--)
-						big_elems[kkk] = big_elems[kkk-1];
-					big_elems[kk] = val;
-				}
-				it++;
-			}
-		}
-		for(sparse_type::iterator it = z.row.begin(); it != z.row.end(); )
-		{
-			if(fabs(it->second) < big_elems[lfil-1] && it->first != k)
-				it = z.row.erase(it);
-			else it++;
-		}
-		// drop column w
-		for(int kk = 0; kk < lfil; kk++)
-			big_elems[kk] = 0.0;
-		for(sparse_type::iterator it = w.row.begin(); it != w.row.end(); )
-		{
-			double val = fabs(it->second);
-			if(val < tau)
-			{
-				it = w.row.erase(it);
-			}
-			else
-			{
-				int kk = 0;
-				while(kk < lfil && val < big_elems[kk])	kk++;
-				if(kk < lfil)
-				{
-					for(int kkk = lfil-1; kkk > kk; kkk--)
-						big_elems[kkk] = big_elems[kkk-1];
-					big_elems[kk] = val;
-				}
-				it++;
-			}
-		}
-		for(sparse_type::iterator it = w.row.begin(); it != w.row.end(); )
-		{
-			if(fabs(it->second) < big_elems[lfil-1])
-				it = w.row.erase(it);
-			else it++;
-		}
-
-		// update factors
-		U->set_vector(k,z,k,n);
-		//L->set_vector(k,w,k+1,n);
-
-		for(sparse_type::iterator it = w.row.begin(); it != w.row.end(); ++it)
-		{
-			int row = it->first;
-			double val = it->second;
-			L->push_element(row,k,val);
-			//L->add_element(row,k,val);
-		}
-
-		L->add_element(k,k,1.0);
-
-		// update indices
-		for(int i = 0; i < k+1; i++)
-		{
-			const sparse_row& rU = (*U)[i];
-			if(rU.row[Ufirst[i]].first < k+1)
-			{
-				while(rU.row[Ufirst[i]].first < k+1 && Ufirst[i] < rU.row.size() ) Ufirst[i]++;
-				if(Ufirst[i] < rU.row.size())
-				{
-					e.first = i;
-					e.second = rU.row[Ufirst[i]].second;
-					Ulist[ rU.row[Ufirst[i]].first ].push_back(e);
-				}
-			}
-			const sparse_row& rL = (*L)[i];
-			if(rL.row[Lfirst[i]].first < k+1)
-			{
-				while(rL.row[Lfirst[i]].first < k+1 && Lfirst[i] < rL.row.size() )	Lfirst[i]++;
-				if(Lfirst[i] < rL.row.size())
-				{
-					e.first = i;
-					e.second = rL.row[Lfirst[i]].second;
-					Llist[ rL.row[Lfirst[i]].first ].push_back(e);
-				}
-			}
-		}
-	}
-
-	delete [] big_elems;
-	delete [] Ufirst;
-	delete [] Lfirst;
-	delete [] Llist;
-	delete [] Ulist;
-	// delete [] Arows;
-	delete [] Acols;
+	//std::cout << "Sparse add time: " << t_sadd << std::endl;
+	//std::cout << "Update time: z " << t_upd1 << " w " << t_upd2 << std::endl;
+	//std::cout << "Clear time: " << t_clr << std::endl;
 
 	return true;
 }
+
 
 bool ILUC_Preconditioner::PreconditionedSolve(const std::vector<double>& rhs, std::vector<double>& x)
 {

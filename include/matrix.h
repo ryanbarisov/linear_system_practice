@@ -9,7 +9,7 @@
 #include <sstream>
 #include <iomanip>
 #include <vector>
-
+#include <climits>
 
 enum class MatrixFormat
 {
@@ -30,22 +30,84 @@ public:
 	virtual ~Matrix() {}
 };
 
+
 class CSRMatrix : public Matrix
 {
 private:
 	int n;
-	bool csc = false;
+	bool csr = true;
 	std::vector<double> a;
 	std::vector<int> ia, ja;
+private:
+	double eps = 1.0e-12;
+	void RemoveZeros(int row,  bool flip_format = false);
+	void Add(double alpha, int i, double beta, int j, bool in_place = false, bool flip_format = false);
 public:
-	CSRMatrix(int n);
-	CSRMatrix(const char * filename);
-	void SetCSC() {csc = true;}
-	void SetCSR() {csc = false;}
+	CSRMatrix(const std::vector<double>& a, const std::vector<int>& ia, const std::vector<int>& ja);
+	double GetEpsilon() const {return eps;}
+	void SetEpsilon(double _eps) {eps = _eps;}
+	const std::vector<double>& GetA() const {return a;}
+	const std::vector<int>& GetIA() const {return ia;}
+	const std::vector<int>& GetJA() const {return ja;}
+	int GetIA(int row) const {return ia[row];}
+	int GetJA(int pos) const {return ja[pos];}
+	double GetA(int pos) const {return a[pos];}
+	void SetA(int pos, double val) {a[pos] = val;}
+	void SetIA(int row, int val) {ia[row] = val;}
+	void SetJA(int pos, int val) {ja[pos] = val;}
+	void FlipStorageFormat();
 	void Multiply(double alpha, const std::vector<double>& x, double beta, std::vector<double>& y) const;
+	void AddRow(double alpha, int i, double beta, int j, bool in_place = false);
+	void AddCol(double alpha, int i, double beta, int j, bool in_place = false);
 	int Size() const {return n;}
+	void RemoveZerosRow(int row);
+	void RemoveZerosCol(int col);
+	void RemoveZeros();
 	bool Save(const char * filename, MatrixFormat fmt) const;
 	void PushElement(int row, int col, double elem);
+	double Diagonal(int row) const;
+	void ExtractDiagonal(std::vector<double>& diag) const;
+	double L2Norm(int row) const;
+	double L1Norm(int row) const;
+};
+
+struct RowAccumulator
+{
+	int n;
+	std::vector<int> jr; // non-zero indicator
+	std::vector<int> jw; // pointer to non-zero elements
+	std::vector<double> w; // real values
+private:
+	void split(int p, int pos);
+	void split_rec(int p, std::vector<int>& perm, int offset);
+	int partition(std::vector<int>& perm, int offset);
+	int find_pos(int col) const;
+	void remove(int pos);
+	bool set(int col, double val, bool add);
+public:
+	RowAccumulator(int n) : n(n)
+	{
+		jr.resize(n,-1);
+	}
+	void Clear();
+	void SparseAdd(const std::vector<double>& a, const std::vector<int>& ja, double alpha, int jbeg, int jend);
+	void SetRowFrom(const CSRMatrix* A, int row, int beg = 0, int end = INT_MAX);
+	void SetIntervalFrom(int n, const std::vector<int>& rows, const std::vector<double>& vals);
+	void SelectLargest(int row, int p);
+	void Scale(double alpha);
+	void Print() const;
+	int Size() const {return w.size();}
+	double L2Norm() const;
+	double L1Norm() const;
+	void Remove(int col);
+	double Get(int col) const;
+	int GetJW(int pos) const {return jw[pos];}
+	double GetW(int pos) const {return w[pos];}
+	bool Push(int col, double val) {return set(col, val, false);}
+	bool Add(int col, double val) {return set(col, val, true);}
+	bool Drop(int col, double norm);
+	void Drop(int row, double norm, int p);
+	void RemoveZeros(double eps = 1.0e-12);
 };
 
 

@@ -7,23 +7,23 @@
 class MatrixReader
 {
 public:
-	static SparseMatrix* ReadMatrix(const char * filename);
+	static CSRMatrix* ReadMatrix(const char * filename);
 };
 
 class MTXMatrixReader : public MatrixReader
 {
 public:
-	static SparseMatrix* ReadMatrix(const char * filename);
+	static CSRMatrix* ReadMatrix(const char * filename);
 };
 
 class CSRMatrixReader : public MatrixReader
 {
 public:
-	static SparseMatrix* ReadMatrix(const char * filename);
+	static CSRMatrix* ReadMatrix(const char * filename);
 };
 
 
-SparseMatrix* ReadMatrix(MatrixFormat fmt, const char * filename);
+CSRMatrix* ReadMatrix(MatrixFormat fmt, const char * filename);
 
 bool read_vector_mtx(std::vector<double>& rhs, const char* filename);
 

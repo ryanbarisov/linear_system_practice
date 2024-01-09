@@ -4,7 +4,7 @@
 #include <method.h>
 
 
-ILU0_Preconditioner::ILU0_Preconditioner(const SparseMatrix* pA, const SolverParameters& params)
+ILU0_Preconditioner::ILU0_Preconditioner(const CSRMatrix* pA, const SolverParameters& params)
 	: Preconditioner(pA, params), LU(nullptr)
 	{}
 
@@ -15,7 +15,7 @@ ILU0_Preconditioner::~ILU0_Preconditioner()
 
 bool ILU0_Preconditioner::SetupPreconditioner()
 {
-	LU = new SparseMatrix(*pA);
+	LU = new CSRMatrix(*pA);
 	construct_inverse(LU);
 	return true;
 }
@@ -26,52 +26,26 @@ bool ILU0_Preconditioner::PreconditionedSolve(const std::vector<double>& rhs, st
 	return true;
 }
 
-void ILU0_Preconditioner::construct_inverse(SparseMatrix* pA)
+void ILU0_Preconditioner::construct_inverse(CSRMatrix* pA)
 {
 	int n = pA->Size();
 
-	std::vector<double> diag(n);
-	for(int row = 0; row < n; row++)
+	std::vector<double> rA;
+	std::vector<int> jA;
+	for(int i = 1; i < n; i++)
 	{
-		const sparse_row& r = (*pA)[row];
-		for(int k = 0; k < r.row.size(); k++)
+		jA.clear();
+		rA.clear();
+		for(int p = pA->GetIA(i), k = pA->GetJA(p); k < i; ++p, k = pA->GetJA(p))
 		{
-			int col = r.row[k].first;
-			if(row == col)
-			{
-				diag[row] = r.row[k].second;
-				break;
-			}
+			double aik = pA->GetA(p) / pA->Diagonal(k);
+			pA->SetA(p, aik); // A(i,k) <- A(i,k) / A(k,k)
+			pA->AddRow(1.0, i, -aik, k, true); // A(i,*) <- A(i,*) - A(i,k)*A(k,*)
+			jA.push_back(k);
+			rA.push_back(aik);
 		}
-	}
-	// ilu0
-	for(int i = 0; i < n; i++)	// loop over rows
-	{
-		double akk, aik, akj;
-		sparse_row& Ai = (*pA)[i];
-		for(int j1 = 0; j1 < Ai.row.size(); j1++)
-		{
-			int k = Ai.row[j1].first;
-			if(!(k >= 0 && k < i))	continue;
-			akk = diag[k];
-			aik = (Ai.row[j1].second /= akk);
-
-			const sparse_row& Ak = (*pA)[k];
-			for(int j2 = 0; j2 < Ai.row.size(); j2++)
-			{
-				int j = Ai.row[j2].first;
-				if(!(j >= k+1 && j < n))	continue;
-				for(int j3 = 0; j3 < Ak.row.size(); j3++)
-				{
-					if(Ak.row[j3].first == j)
-					{
-						akj = Ak.row[j3].second;
-						Ai.row[j2].second -= aik*akj;
-						if(j == i)
-							diag[i] = Ai.row[j2].second;
-					}
-				}
-			}
-		}
+		// restore A(i,j), j < i
+		for(int p = 0; p < jA.size(); ++p)
+			pA->PushElement(i, jA[p], rA[p]);
 	}
 }

@@ -9,10 +9,13 @@ bool JACOBI_Preconditioner::PreconditionedSolve(const std::vector<double>& rhs, 
 
 bool GS_Preconditioner::PreconditionedSolve(const std::vector<double>& rhs, std::vector<double>& x)
 {
-	gs_precondition(pA,x,rhs);
-	// gauss_seidel_precondition_backward(pA,x,rhs);
-	// symm_gs_precondition(pA,x,rhs);
-	// sor_precondition(pA,x,rhs);
+	gs_precondition(pA,x,rhs); gs_precondition_backward(pA,x,x);
+	return true;
+}
+
+bool SSOR_Preconditioner::PreconditionedSolve(const std::vector<double>& rhs, std::vector<double>& x)
+{
+	ssor_precondition(pA,x,rhs);
 	return true;
 }
 
@@ -29,7 +32,9 @@ PreconditionerType GetPreconditionerType(std::string name)
 		return PreconditionerType::ILU0;
 	else if(name == "jacobi")
 		return PreconditionerType::JACOBI;
-	else if(name == "gauss-seidel")
+	else if(name == "ssor")
+		return PreconditionerType::SSOR;
+	else if(name == "gs")
 		return PreconditionerType::GAUSS_SEIDEL;
 	else
 	{
