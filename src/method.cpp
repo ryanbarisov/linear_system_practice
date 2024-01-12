@@ -126,42 +126,45 @@ bool PBICGStab_method::Solve(const std::vector<double>& b, std::vector<double>& 
 void jacobi_precondition(const CSRMatrix* pA, std::vector<double>& x, const std::vector<double>& b)
 {
 	int n = pA->Size();
-	std::vector<double> diag, x1(n);
+	std::vector<double> diag, x0 = x;
 	pA->ExtractDiagonal(diag);
 	double omega = 0.8;
 	for(int i = 0; i < n; i++)
 	{
-		x1[i] = b[i];
+		x[i] = b[i];
 		for(int j = pA->GetIA(i); j < pA->GetIA(i+1); ++j) if(pA->GetJA(j) != i)
-			x1[i] -= pA->GetA(j)*x[pA->GetJA(j)];
-		x1[i] = b[i]/diag[i];
+			x[i] -= pA->GetA(j)*x0[pA->GetJA(j)];
+		x[i] = omega*x[i]/diag[i] + (1-omega)*x0[i];
 	}
-
-	for(int i = 0; i < n; ++i)
-		x[i] = (1-omega)*x[i] + omega*x1[i];
-	
 }
 
 
 void gs_precondition(const CSRMatrix* pA, std::vector<double>& x, const std::vector<double>& b)
 {
 	int n = pA->Size();
-	std::vector<double> diag, x1;
+	std::vector<double> diag, x0 = x;
 	const std::vector<double>& a = pA->GetA();
 	const std::vector<int>& ia = pA->GetIA();
 	const std::vector<int>& ja = pA->GetJA();
-	// (D+L)x = b
-	double omega = 0.8;
-	x1 = b;
+	// (D+L)x = (b-Ux_0)
+	double omega = 1.0;
+	x = b;
 	pA->ExtractDiagonal(diag);
-	for(int i = 0; i < n; i++)
+	//for(int i = n-1; i >= 0; --i)
+	for(int i = 0; i < n; ++i)
+		//for(int j = ia[i+1]-1; j >= ia[i] && ja[j] > i; --j)
+		for(int j = ia[i+1]-1; j >= ia[i]; --j) if(ja[j] > i)
+			x[i] -= a[j]*x0[ja[j]];
+	for(int i = 0; i < n; ++i)
 	{
-		for(int j = ia[i]; j < ia[i+1] && ja[j] < i; ++j)
-			x1[i] -= a[j]*x1[ja[j]];
+		//for(int j = ia[i]; j < ia[i+1] && ja[j] < i; ++j)
+		for(int j = ia[i]; j < ia[i+1]; ++j) if(ja[j] < i)
+			x[i] -= a[j]*x[ja[j]];
 		assert(fabs(diag[i]) > 1.0e-12);
-		x1[i] /= diag[i];
-		x[i] = omega*x1[i] + (1.-omega)*x[i];
+		x[i] /= diag[i];
 	}
+	for(int i = 0; i < n; i++)
+		x[i] = omega*x[i] + (1.-omega)*x0[i];
 }
 
 void ssor_precondition(const CSRMatrix* pA, std::vector<double>& x, const std::vector<double>& b)

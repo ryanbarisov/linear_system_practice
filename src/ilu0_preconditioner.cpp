@@ -48,4 +48,5 @@ void ILU0_Preconditioner::construct_inverse(CSRMatrix* pA)
 		for(int p = 0; p < jA.size(); ++p)
 			pA->PushElement(i, jA[p], rA[p]);
 	}
+	//pA->Save("ilu0.csr", MatrixFormat::CSR);
 }

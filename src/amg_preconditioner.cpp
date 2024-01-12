@@ -6,7 +6,7 @@
 #include <algorithm>
 #include <set>
 
-//#define AMG_COARSE_SOLVE // solve coarsest grid instead of smoothing
+#define AMG_COARSE_SOLVE // solve coarsest grid instead of smoothing
 
 
 static void find_strongly_connected(const CSRMatrix* pA, std::vector<std::vector<int> >& sc, double theta = 0.25)
@@ -20,7 +20,7 @@ static void find_strongly_connected(const CSRMatrix* pA, std::vector<std::vector
 		double m = 0.0;
 		for(int j = pA->GetIA(i); j < pA->GetIA(i+1); ++j)
 			if(pA->GetJA(j) != i && fabs(pA->GetA(j)) > m)
-				m = pA->GetA(j);
+				m = fabs(pA->GetA(j));
 		maxmod[i] = m;
 	}
 
@@ -56,6 +56,7 @@ void AMG_Preconditioner::prolongation(int m, const std::vector<double>& e, std::
 {
 	int n = Am[m-1]->Size();
 	v_out.resize(n);
+	std::fill(v_out.begin(), v_out.end(), 0.0);
 	const std::vector<int>& C = Cm[m-1];
 	const interpolation_type& W = Wm[m-1];
 	assert(e.size() == C.size());
@@ -63,9 +64,15 @@ void AMG_Preconditioner::prolongation(int m, const std::vector<double>& e, std::
 	{
 		int i = C[k];
 		v_out[i] = e[k];
-		const RowAccumulator& r = W.at(i);
-		for(int j = 0; j < r.w.size(); ++j)
-			v_out[r.jw[j]] += r.w[j]*e[k];
+		if(W.find(i) != W.end())
+		{
+			const RowAccumulator& r = W.at(i);
+			for(int j = 0; j < r.w.size(); ++j)
+			{
+				assert(r.jw[j] != i);
+				v_out[r.jw[j]] += r.w[j]*e[k];
+			}
+		}
 	}
 }
 // restriction from m to m+1
@@ -81,23 +88,27 @@ void AMG_Preconditioner::restriction(int m, const std::vector<double>& e, std::v
 	{
 		int i = C[k];
 		v_out[k] = e[i];
-		const RowAccumulator& r = W.at(i);
-		for(int j = 0; j < r.w.size(); ++j)
-			v_out[k] += r.w[j]*e[r.jw[j]];
+		if(W.find(i) != W.end())
+		{
+			const RowAccumulator& r = W.at(i);
+			for(int j = 0; j < r.w.size(); ++j)
+			{
+				assert(r.jw[j] != i);
+				v_out[k] += r.w[j]*e[r.jw[j]];
+			}
+		}
 	}
 }
 
 void AMG_Preconditioner::smoothing(int m, std::vector<double>& x, const std::vector<double>& b, int nrelax)
 {
-	int method = 0;	// 0 - Jacobi, 1 - Gauss-Seidel, 2 - ?
+	int method = 1;	// 0 - Jacobi, 1 - Gauss-Seidel, 2 - ?
 	for(int k = 0; k < nrelax; k++)
 	{
-		jacobi_precondition(Am[m], x, b);
-		/*
 		if(method == 0)
-			jacobi_precondition(Am[m], x, k > 0 ? x : b);
+			jacobi_precondition(Am[m], x, b);
 		else if(method == 1)
-			gs_precondition(Am[m], x, k > 0 ? x : b);*/
+			gs_precondition(Am[m], x, b);
 	}
 }
 
@@ -128,9 +139,13 @@ void AMG_Preconditioner::construct_coarse_system(int m)
 	{
 		int i = C[k];
 		w.SetRowFrom(pAf, i);
-		const RowAccumulator& rW = W.at(i);
-		for(int j = 0; j < rW.jw.size(); ++j)
-			w.SparseAdd(pAf, rW.jw[j], rW.w[j]);
+		//assert(W.find(i) != W.end());
+		if(W.find(i) != W.end())
+		{
+			const RowAccumulator& rW = W.at(i);
+			for(int j = 0; j < rW.jw.size(); ++j)
+				w.SparseAdd(pAf, rW.jw[j], rW.w[j]);
+		}
 		ib[k+1] = ib[k] + w.Size();
 		for(int k = 0; k < w.Size(); ++k)
 		{
@@ -149,9 +164,13 @@ void AMG_Preconditioner::construct_coarse_system(int m)
 	{
 		int i = C[k];
 		w.SetRowFrom(pAc, i);
-		const RowAccumulator& rW = W.at(i);
-		for(int j = 0; j < rW.jw.size(); ++j)
-			w.SparseAdd(pAc, rW.jw[j], rW.w[j]);
+		//assert(W.find(i) != W.end());
+		if(W.find(i) != W.end())
+		{
+			const RowAccumulator& rW = W.at(i);
+			for(int j = 0; j < rW.jw.size(); ++j)
+				w.SparseAdd(pAc, rW.jw[j], rW.w[j]);
+		}
 		ib[k+1] = ib[k] + w.Size();
 		for(int k = 0; k < w.Size(); ++k)
 		{
@@ -161,9 +180,11 @@ void AMG_Preconditioner::construct_coarse_system(int m)
 		w.Clear();
 	}
 	delete pAc;
-	Am[m] = new CSRMatrix(b,ib,jb);
+	Am[m] = new CSRMatrix(b,ib,jb, false);
 	Am[m]->RemoveZeros();
 	Am[m]->FlipStorageFormat(nc); // back to CSR
+	//std::string s = "amg_level_"+std::to_string(m)+".csr";
+	//Am[m]->Save(s.c_str(), MatrixFormat::CSR);
 }
 
 
@@ -552,11 +573,7 @@ void AMG_Preconditioner::W_cycle(int m, std::vector<double>& x, const std::vecto
 	int nc = Am[m+1]->Size();
 	int n = pA->Size();
 	std::vector<double> resid = b, resid_restricted(nc), x0(nc, 0.0);
-	for(int i = 0; i < n; i++)
-	{
-		for(int j = pA->GetIA(i); j < pA->GetIA(i+1); ++j)
-			resid[i] -= pA->GetA(j)*x[pA->GetJA(j)];
-	}
+	pA->Multiply(-1.0, x, 1.0,resid);
 	restriction(m,resid,resid_restricted);
 	if(!stop)
 		W_cycle(m+1,x0,resid_restricted);
@@ -574,12 +591,8 @@ void AMG_Preconditioner::W_cycle(int m, std::vector<double>& x, const std::vecto
 	// re-smoothing
 	smoothing(m,x,b, niters_smooth);
 	// compute residual r = b - Ax
-	for(int i = 0; i < n; i++)
-	{
-		resid[i] = b[i];
-		for(int j = pA->GetIA(i); j < pA->GetIA(i+1); ++j)
-			resid[i] -= pA->GetA(j)*x[pA->GetJA(j)];
-	}
+	resid = b;
+	pA->Multiply(-1.0, x, 1.0,resid);
 	restriction(m,resid,resid_restricted);
 	if(!stop)
 		W_cycle(m+1,x0,resid_restricted);

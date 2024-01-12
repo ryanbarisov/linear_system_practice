@@ -43,7 +43,7 @@ private:
 	void RemoveZeros(int row,  bool flip_format = false);
 	void Add(double alpha, int i, double beta, int j, bool in_place = false, bool flip_format = false);
 public:
-	CSRMatrix(const std::vector<double>& a, const std::vector<int>& ia, const std::vector<int>& ja);
+	CSRMatrix(const std::vector<double>& a, const std::vector<int>& ia, const std::vector<int>& ja, bool csr = true);
 	int Size() const {return n;}
 	double GetEpsilon() const {return eps;}
 	void SetEpsilon(double _eps) {eps = _eps;}

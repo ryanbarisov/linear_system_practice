@@ -158,14 +158,13 @@ int check_nans(const SparseMatrix* mat)
 	return last_found;
 }
 
-CSRMatrix::CSRMatrix(const std::vector<double>& a, const std::vector<int>& ia, const std::vector<int>& ja) : a(a), ia(ia), ja(ja)
+CSRMatrix::CSRMatrix(const std::vector<double>& a, const std::vector<int>& ia, const std::vector<int>& ja, bool csr) : a(a), ia(ia), ja(ja), csr(csr)
 {
 	n = ia.size()-1;
 }
 
 void CSRMatrix::FlipStorageFormat(int new_n)
 {
-
 	if(!a.empty())
 	{
 		if(new_n == -1) new_n = n;
