@@ -24,7 +24,7 @@ static bool my_isspace(char ch)
 
 // split string on words using space as separator
 // return amount of words
-static int parse_string_numbers(std::string str)
+static int wc(std::string str)
 {
 	// doesn't work correctly if words separated by several spaces
 	//return std::count(str.begin(), str.end(), ' '); 
@@ -63,8 +63,6 @@ static int parse_string_numbers(std::string str)
 
 CSRMatrix* MTXMatrixReader::ReadMatrix(const char * filename)
 {
-	SparseMatrix* A = nullptr;
-
 	std::ifstream ifs(filename);
 	if(!ifs.is_open())
 	{
@@ -74,17 +72,34 @@ CSRMatrix* MTXMatrixReader::ReadMatrix(const char * filename)
 	else
 	{
 		int rows, cols, nnz,  i, j, k = 0;
-		bool read_first_line = false;
+		bool read_first_line = false, symm = false;
 		double aij;
 		std::string s;
 		std::vector<int> ia, ja;
 		std::vector<double> a;
+		std::vector<std::vector<int>> rcols;
+		std::vector<std::vector<double>> rvals;
 		while(!ifs.eof())
 		{
 			std::getline(ifs,s);
 			if(s.empty())	continue;
 			else if(s[0] == '%')
 			{
+				std::stringstream ss(s);
+				std::string s1; ss >> s1;
+				if(s1 == "%%MatrixMarket")
+				{
+					//assert(wc(ss.str()) == 4);
+					ss >> s1;
+					assert(s1 == "matrix");
+					ss >> s1;
+					assert(s1 == "coordinate");
+					ss >> s1;
+					assert(s1 == "real");
+					ss >> s1;
+					if(s1 == "symmetric")
+						symm = true;
+				}
 				continue;	// skip comment line
 			}
 			else
@@ -93,7 +108,7 @@ CSRMatrix* MTXMatrixReader::ReadMatrix(const char * filename)
 				if(!read_first_line)
 				{
 					std::string line = ss.str();
-					int nums = parse_string_numbers(line);
+					int nums = wc(line);
 					if(nums == 3)
 						ss >> rows >> cols >> nnz;
 					else if(nums == 2)
@@ -107,35 +122,44 @@ CSRMatrix* MTXMatrixReader::ReadMatrix(const char * filename)
 						cols = 1;
 						nnz = rows;
 					}
-					ia.resize(rows+1, 0);
-					//ja.resize(nnz);
-					//a.resize(nnz);
+					if(symm) nnz = 2*nnz - rows;
+					rcols.resize(rows); rvals.resize(rows);
+					ia.resize(rows+1);
+					ja.reserve(nnz); a.reserve(nnz);
+					read_first_line = true;
 				}
 				else
 				{
 					ss >> i >> j >> aij;
 					--i; --j;
-					for(int k = i+1; k < rows+1; ++k)
-						ia[k]++;
-					bool found = false;
-					int pos = ia[i];
-					while(!found && pos < ia[i+1]-1 && pos < ja.size())
-						if(j < ja[pos]) found = true;
-						else ++pos;
-					ja.insert(ja.begin()+pos, j);
-					a.insert(a.begin()+pos, aij);
+					++ia[i+1];
+					rcols[i].push_back(j);
+					rvals[i].push_back(aij);
+					if(symm && i != j)
+					{
+						rcols[j].push_back(i);
+						rvals[j].push_back(aij);
+						++ia[j+1];
+					}
 				}
-				if(ss.fail())
-				{
-					std::cout << "Error occurred during reading string: " << s << std::endl;
-					break;
-				}
-				if(!read_first_line)
-					read_first_line = true;
 			}
 		}
+		for(int i = 0; i < rows; ++i)
+		{
+			ia[i+1] += ia[i];
+			std::vector<int>& cols = rcols[i];
+			std::vector<double>& vals = rvals[i];
+			for(int k = 0; k < cols.size(); ++k)
+				for(int j = k+1; j < cols.size(); ++j)
+					if(cols[j] < cols[k])
+					{
+						int tmp = cols[j]; cols[j] = cols[k]; cols[k] = tmp;
+						double amp = vals[j]; vals[j] = vals[k]; vals[k] = amp;
+					}
+			std::copy(cols.begin(), cols.end(), std::back_inserter(ja));
+			std::copy(vals.begin(), vals.end(), std::back_inserter(a));
+		}
 		std::cout << "Matrix " << filename << ": " << rows << " X " << cols << ", nnz=" << nnz << std::endl;
-		//MTXMatrixWriter::WriteMatrix(*A, "save.mtx");
 		ifs.close();
 		return new CSRMatrix(a, ia, ja);
 	}
@@ -202,7 +226,7 @@ bool read_vector_mtx(std::vector<double>& rhs, const char* filename)
 				std::stringstream ss(s);
 				if(!flag)
 				{
-					int nums = parse_string_numbers(s);
+					int nums = wc(s);
 					if(nums == 2)
 						ss >> M >> N;
 					else if(nums == 1)

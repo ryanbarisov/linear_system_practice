@@ -83,7 +83,7 @@ public:
 
 class AMG_Preconditioner : public Preconditioner
 {
-	typedef std::map<int,sparse_row> interpolation_type;
+	typedef std::map<int,RowAccumulator> interpolation_type;
 private:
 	int amg_levels = 2;
 	int niters_smooth = 2;
@@ -91,13 +91,13 @@ private:
 
 	std::vector<int> Nm;						// coarse system dimensions for 1 <= m <= q = amg_levels-1
 	std::vector< std::vector<int> > Cm;			// index set for coarse grids, 1 <= m <= q = amg_levels-1
-	std::vector< SparseMatrix* > Am;				// coarse grid matrices for 0 <= m <= amg_levels-1
+	std::vector< CSRMatrix* > Am;				// coarse grid matrices for 0 <= m <= amg_levels-1
 	std::vector< interpolation_type > Wm;		// interpolation weights for 1 <= m <= amg_levels-1
 
 	// prolongation from m to m-1, m > 0
-	void prolongation(int m_from, const std::vector<double>& e, std::vector<double>& v_out);
+	void prolongation(int m_from, const std::vector<double>& e, std::vector<double>& v_out) const;
 	// restriction from m to m+1
-	void restriction(int m_from, const std::vector<double>& e, std::vector<double>& v_out);
+	void restriction(int m_from, const std::vector<double>& e, std::vector<double>& v_out) const;
 	void smoothing(int m, std::vector<double>& x, const std::vector<double>& b, int nrelax = 1);
 
 	void construct_coarsest_inverse();
@@ -175,8 +175,8 @@ static Preconditioner * CreatePreconditioner(const CSRMatrix* pA, const SolverPa
 		return new ILU0_Preconditioner(pA, parameters);
 	else if(ptype == PreconditionerType::ILUC)
 		return new ILUC_Preconditioner(pA, parameters);
-//	else if(ptype == PreconditionerType::AMG)
-//		return new AMG_Preconditioner(pA, parameters);
+	else if(ptype == PreconditionerType::AMG)
+		return new AMG_Preconditioner(pA, parameters);
 	else if(ptype == PreconditionerType::JACOBI)
 		return new JACOBI_Preconditioner(pA, parameters);
 	else if(ptype == PreconditionerType::GAUSS_SEIDEL)

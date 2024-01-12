@@ -76,10 +76,10 @@ bool ILUC_Preconditioner::SetupPreconditioner()
 		for(int j = 0; j < Ul.size(); ++j)
 		{
 			int i = Ul[j];
-			if(Ufirst[i]+1 < iua[i+1])
-				Ulist[jua[++Ufirst[i]]].push_back(i);
+			if(Ufirst[i] < iua[i+1])
+				Ulist[jua[Ufirst[i]++]].push_back(i);
 		}
-		Ulist[jua[++Ufirst[k]]].push_back(k);
+		Ulist[jua[Ufirst[k]++]].push_back(k);
 		t_upd1 += Timer()-t0;
 
 		t0 = Timer();
@@ -92,10 +92,10 @@ bool ILUC_Preconditioner::SetupPreconditioner()
 		for(int j = 0; j < Ll.size(); ++j)
 		{
 			int i = Ll[j];
-			if(Lfirst[i]+1 < ila[i+1])
-				Llist[jla[++Lfirst[i]]].push_back(i);
+			if(Lfirst[i] < ila[i+1])
+				Llist[jla[Lfirst[i]++]].push_back(i);
 		}
-		Llist[jla[++Lfirst[k]]].push_back(k);
+		Llist[jla[Lfirst[k]++]].push_back(k);
 		t_upd2 += Timer()-t0;
 
 		t0 = Timer();

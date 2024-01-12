@@ -44,6 +44,7 @@ private:
 	void Add(double alpha, int i, double beta, int j, bool in_place = false, bool flip_format = false);
 public:
 	CSRMatrix(const std::vector<double>& a, const std::vector<int>& ia, const std::vector<int>& ja);
+	int Size() const {return n;}
 	double GetEpsilon() const {return eps;}
 	void SetEpsilon(double _eps) {eps = _eps;}
 	const std::vector<double>& GetA() const {return a;}
@@ -52,14 +53,14 @@ public:
 	int GetIA(int row) const {return ia[row];}
 	int GetJA(int pos) const {return ja[pos];}
 	double GetA(int pos) const {return a[pos];}
+	double Get(int i, int j) const;
 	void SetA(int pos, double val) {a[pos] = val;}
 	void SetIA(int row, int val) {ia[row] = val;}
 	void SetJA(int pos, int val) {ja[pos] = val;}
-	void FlipStorageFormat();
+	void FlipStorageFormat(int new_n = -1);
 	void Multiply(double alpha, const std::vector<double>& x, double beta, std::vector<double>& y) const;
 	void AddRow(double alpha, int i, double beta, int j, bool in_place = false);
 	void AddCol(double alpha, int i, double beta, int j, bool in_place = false);
-	int Size() const {return n;}
 	void RemoveZerosRow(int row);
 	void RemoveZerosCol(int col);
 	void RemoveZeros();
@@ -74,9 +75,11 @@ public:
 struct RowAccumulator
 {
 	int n;
-	std::vector<int> jr; // non-zero indicator
 	std::vector<int> jw; // pointer to non-zero elements
 	std::vector<double> w; // real values
+private:
+	std::vector<int> jr; // non-zero indicator
+	bool jralloc = false; //
 private:
 	void split(int p, int pos);
 	void split_rec(int p, std::vector<int>& perm, int offset);
@@ -84,13 +87,17 @@ private:
 	int find_pos(int col) const;
 	void remove(int pos);
 	bool set(int col, double val, bool add);
+	bool prepare_jr();
+	bool clear_jr();
 public:
-	RowAccumulator(int n) : n(n)
+	RowAccumulator(int n = 0) : n(n)
 	{
 		jr.resize(n,-1);
 	}
+	void Resize(int _n) { if(n != _n) {n = _n; jr.resize(n,-1); jw.clear(); w.clear();}}
 	void Clear();
 	void SparseAdd(const std::vector<double>& a, const std::vector<int>& ja, double alpha, int jbeg, int jend);
+	void SparseAdd(const CSRMatrix* A, int row, double alpha);
 	void SetRowFrom(const CSRMatrix* A, int row, int beg = 0, int end = INT_MAX);
 	void SetIntervalFrom(int n, const std::vector<int>& rows, const std::vector<double>& vals);
 	void SelectLargest(int row, int p);

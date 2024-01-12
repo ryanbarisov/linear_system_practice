@@ -163,16 +163,18 @@ CSRMatrix::CSRMatrix(const std::vector<double>& a, const std::vector<int>& ia, c
 	n = ia.size()-1;
 }
 
-void CSRMatrix::FlipStorageFormat()
+void CSRMatrix::FlipStorageFormat(int new_n)
 {
+
 	if(!a.empty())
 	{
-		std::vector<int> new_ia(n+1, 0), new_ja(ja.size());
+		if(new_n == -1) new_n = n;
+		std::vector<int> new_ia(new_n+1, 0), new_ja(ja.size());
 		std::vector<double> new_a(a.size());
 		for(int k = 0; k < n; ++k)
 			for(int j = ia[k]; j < ia[k+1]; ++j)
 				new_ia[ja[j]+1]++;
-		for(int j = 1; j < n+1; ++j)
+		for(int j = 1; j < new_n+1; ++j)
 			new_ia[j] += new_ia[j-1];
 		std::vector<int> pos = new_ia;
 		for(int k = 0; k < n; ++k)
@@ -185,6 +187,7 @@ void CSRMatrix::FlipStorageFormat()
 		a = new_a;
 		ia = new_ia;
 		ja = new_ja;
+		n = new_n;
 	}
 	csr = !csr;
 }
@@ -426,10 +429,23 @@ bool CSRMatrix::Save(const char * filename, MatrixFormat fmt) const
 	return true;
 }
 
+
+double CSRMatrix::Get(int row, int col) const
+{
+	for(int j = ia[row]; j < ia[row+1]; ++j)
+		if(ja[j] == col) return a[j];
+	return 0.0;
+}
+
 void RowAccumulator::SparseAdd(const std::vector<double>& a, const std::vector<int>& ja, double alpha, int jbeg, int jend)
 {
         for(int j = jbeg; j < jend; ++j)
 		Add(ja[j], alpha*a[j]);
+}
+
+void RowAccumulator::SparseAdd(const CSRMatrix* pA, int row, double alpha)
+{
+	SparseAdd(pA->GetA(), pA->GetJA(), alpha, pA->GetIA(row), pA->GetIA(row+1));
 }
 
 void RowAccumulator::SetRowFrom(const CSRMatrix* pA, int i, int beg, int end)
@@ -452,6 +468,7 @@ void RowAccumulator::SetRowFrom(const CSRMatrix* pA, int i, int beg, int end)
         }
 }
 
+
 void RowAccumulator::SetIntervalFrom(int n, const std::vector<int>& rows, const std::vector<double>& vals)
 {
 	if(jr.size() != n) jr.resize(n,-1);
@@ -467,23 +484,9 @@ void RowAccumulator::SetIntervalFrom(int n, const std::vector<int>& rows, const 
 
 void RowAccumulator::split(int p, int i)
 {
-        int left = 0, right = 0;
-        for(int k = 0; k < jw.size(); ++k)
-                if(jw[k] < i) ++left;
-                else
-		{
-			right = jw.size()-1-left;
-			break;
-		}
-        std::vector<int> lperm(left), rperm(right);
-        for(int k = 0; k < left; ++k)
-                lperm[k] = k;
-        for(int k = 0; k < right; ++k)
-                rperm[k] = left+1+k;
-	if(right > p)
-	        split_rec(p, rperm, 0);
-	if(left > p)
-	        split_rec(p, lperm, 0);
+	std::vector<int> perm(jw.size());
+	for(int k = 0; k < perm.size(); ++k) perm[k] = k;
+	split_rec(p, perm, 0);
 }
 void RowAccumulator::split_rec(int p, std::vector<int>& perm, int offset)
 {
@@ -523,11 +526,8 @@ int RowAccumulator::partition(std::vector<int>& perm, int offset)
 
 void RowAccumulator::SelectLargest(int i, int p)
 {
-	if(i > 0 && i < n-1 && w.size() <= 2*p+1)
-                return;
-	else if((i == 0 || i == n-1) && w.size() <= p+1)
-                return;
-        split(p, i);
+	if(w.size() <= p+1) return;
+	split(p, i);
 	RemoveZeros();
 }
 
@@ -588,7 +588,7 @@ bool RowAccumulator::Drop(int col, double norm)
 void RowAccumulator::Drop(int row, double norm, int p)
 {
 	for(int pos = jw.size()-1; pos >= 0; --pos)
-		if(fabs(w[pos]) < norm)
+		if(fabs(w[pos]) < norm && jw[pos] != row)
 			remove(pos);
 	SelectLargest(row, p);
 }
@@ -651,4 +651,29 @@ void RowAccumulator::Clear()
 		jr[jw[k]] = -1;
 	jw.clear();
 	w.clear();
+}
+
+bool RowAccumulator::prepare_jr()
+{
+	bool prev = jralloc;
+	if(!jralloc)
+	{
+		jr.resize(n);
+		std::fill(jr.begin(), jr.end(), -1);
+		for(int k = 0; k < jw.size(); ++k)
+			jr[jw[k]] = k;
+		jralloc = true;
+	}
+	return prev;
+}
+
+bool RowAccumulator::clear_jr()
+{
+	bool prev = jralloc;
+	if(jralloc)
+	{
+		jr.clear();
+		jralloc = false;
+	}
+	return prev;
 }
