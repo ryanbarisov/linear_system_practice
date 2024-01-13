@@ -110,8 +110,8 @@ public:
 	double Get(int col) const;
 	int GetJW(int pos) const {return jw[pos];}
 	double GetW(int pos) const {return w[pos];}
-	bool Push(int col, double val) {return set(col, val, false);}
-	bool Add(int col, double val) {return set(col, val, true);}
+	bool Push(int col, double val);
+	bool Add(int col, double val);
 	bool Drop(int col, double norm);
 	void Drop(int row, double norm, int p);
 	void RemoveZeros(double eps = 1.0e-12);

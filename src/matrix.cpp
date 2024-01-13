@@ -438,6 +438,7 @@ double CSRMatrix::Get(int row, int col) const
 
 void RowAccumulator::SparseAdd(const std::vector<double>& a, const std::vector<int>& ja, double alpha, int jbeg, int jend)
 {
+	if(!jralloc) prepare_jr();
         for(int j = jbeg; j < jend; ++j)
 		Add(ja[j], alpha*a[j]);
 }
@@ -521,7 +522,6 @@ int RowAccumulator::partition(std::vector<int>& perm, int offset)
         }
         return ipiv;
 }
-
 
 void RowAccumulator::SelectLargest(int i, int p)
 {
@@ -659,6 +659,19 @@ bool RowAccumulator::prepare_jr()
 	{
 		jr.resize(n);
 		std::fill(jr.begin(), jr.end(), -1);
+		bool need_sort = false;
+		for(int i = 0; i < jw.size()-1 && !need_sort; ++i)
+			need_sort = jw[i] < jw[i+1];
+		if(need_sort)
+		{
+			for(int i = 0; i < jw.size(); ++i)
+				for(int j = i+1; j < w.size(); ++j)
+					if(jw[i] > jw[j])
+					{
+						std::swap(jw[i], jw[j]);
+						std::swap(w[i], w[j]);
+					}
+		}
 		for(int k = 0; k < jw.size(); ++k)
 			jr[jw[k]] = k;
 		jralloc = true;
@@ -675,4 +688,17 @@ bool RowAccumulator::clear_jr()
 		jralloc = false;
 	}
 	return prev;
+}
+
+bool RowAccumulator::Push(int col, double val)
+{
+	if(jralloc) clear_jr();
+	jw.push_back(col);
+	w.push_back(val);
+	return true;
+}
+bool RowAccumulator::Add(int col, double val)
+{
+	if(!jralloc) prepare_jr();
+	return set(col, val, true);
 }

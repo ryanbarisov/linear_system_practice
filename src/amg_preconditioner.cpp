@@ -155,7 +155,6 @@ void AMG_Preconditioner::construct_coarse_system(int m)
 		w.Clear();
 	}
 	CSRMatrix* pAc = new CSRMatrix(b,ib,jb);
-	pAc->RemoveZeros();
 	pAc->FlipStorageFormat(nf); // convert to CSC
 	ib.resize(nc+1); ib[0] = 0;
 	b.clear();jb.clear();
@@ -461,20 +460,8 @@ void AMG_Preconditioner::construct_CF_partition(int m)
 			}
 		}
 		if(!Im_col.empty())
-		{
-			/*
-			RowAccumulator& rW = W[i];
-			rW.Resize(n);
-			for(int kk = 0; kk < Im_col.size(); kk++)
-				rW.Add(Im_col[kk], -Im_coef[kk] / di);
-			*/
-			int nfc = nF;
-			for(int kk = 0; kk < Im_col.size(); kk++)
-				if(W[Im_col[kk]].Size() != n)
-					W[Im_col[kk]].Resize(n);
 			for(int kk = 0; kk < Im_col.size(); kk++)
 				W[Im_col[kk]].Push(i, -Im_coef[kk] / di);
-		}
 		else
 		{
 			//?
