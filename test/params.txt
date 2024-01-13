@@ -1,0 +1,14 @@
+# preconditioner: none amg ilu0 iluc jacobi gs ssor
+#preconditioner jacobi
+preconditioner iluc
+#solver: cg bicgstab
+solver cg
+maximum_iterations 1000
+relative_tolerance 1.0e-8
+absolute_tolerance 1.0e-12
+amg_levels 2
+niters_smooth 2
+w_cycle 0
+drop_tolerance 1.0e-3
+level_of_fill 50
+debug 0

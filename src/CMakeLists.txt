@@ -1,0 +1,12 @@
+set(SOURCE
+	${CMAKE_CURRENT_SOURCE_DIR}/timer.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/solver_parameters.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/matrix.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/matrixreader.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/matrixwriter.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/method.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/preconditioner.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/ilu0_preconditioner.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/iluc_preconditioner.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/amg_preconditioner.cpp
+	PARENT_SCOPE)
